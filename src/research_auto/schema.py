@@ -115,6 +115,13 @@ create table if not exists job_attempts (
     log_excerpt text
 );
 
+create table if not exists worker_queue_state (
+    queue_name text primary key,
+    last_started_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
 create table if not exists page_snapshots (
     id uuid primary key default gen_random_uuid(),
     crawl_run_id uuid references crawl_runs(id) on delete cascade,
@@ -257,6 +264,11 @@ for each row execute function set_updated_at();
 drop trigger if exists jobs_set_updated_at on jobs;
 create trigger jobs_set_updated_at
 before update on jobs
+for each row execute function set_updated_at();
+
+drop trigger if exists worker_queue_state_set_updated_at on worker_queue_state;
+create trigger worker_queue_state_set_updated_at
+before update on worker_queue_state
 for each row execute function set_updated_at();
 
 drop trigger if exists artifacts_set_updated_at on artifacts;

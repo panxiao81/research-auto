@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from research_auto.adapters.sql import PostgresSqlQueries
 from research_auto.db import Database
 from research_auto.web.services import (
     get_paper_detail_for_ui,
@@ -80,7 +81,9 @@ def ui_papers(
         sort=sort,
         order=order,
     )
-    providers = db.list_rows("select distinct provider from paper_summaries where provider is not null order by provider asc")
+    providers = PostgresSqlQueries(db).list_rows(
+        "select distinct provider from paper_summaries where provider is not null order by provider asc"
+    )
     return templates.TemplateResponse(
         request,
         "pages/papers.html",
@@ -112,7 +115,9 @@ def ui_paper_detail(request: Request, paper_id: str) -> HTMLResponse:
 def ui_search(request: Request, q: str = Query(""), limit: int = 20) -> HTMLResponse:
     db: Database = request.app.state.db
     results = search_papers_for_ui(db, q, limit) if q else []
-    return templates.TemplateResponse(request, "pages/search.html", {"q": q, "results": results, "limit": limit})
+    return templates.TemplateResponse(
+        request, "pages/search.html", {"q": q, "results": results, "limit": limit}
+    )
 
 
 @router.get("/ui/stats", response_class=HTMLResponse)
@@ -123,11 +128,21 @@ def ui_stats(request: Request) -> HTMLResponse:
 
 
 @router.get("/ui/jobs", response_class=HTMLResponse)
-def ui_jobs(request: Request, status: str | None = None, job_type: str | None = None, limit: int = 100) -> HTMLResponse:
+def ui_jobs(
+    request: Request,
+    status: str | None = None,
+    job_type: str | None = None,
+    limit: int = 100,
+) -> HTMLResponse:
     db: Database = request.app.state.db
     jobs = list_jobs_for_ui(db, status=status, job_type=job_type, limit=limit)
     return templates.TemplateResponse(
         request,
         "pages/jobs.html",
-        {"jobs": jobs, "status": status or "", "job_type": job_type or "", "limit": limit},
+        {
+            "jobs": jobs,
+            "status": status or "",
+            "job_type": job_type or "",
+            "limit": limit,
+        },
     )

@@ -5,15 +5,21 @@ import json
 
 import uvicorn
 
+from research_auto.adapters.read_models import PostgresReadRepository
+from research_auto.adapters.sql import (
+    PostgresCatalogAdmin,
+    PostgresJobQueueAdmin,
+    PostgresSqlQueries,
+)
+from research_auto.application.query_services import (
+    QuestionAnswerService,
+    ReadQueryService,
+)
 from research_auto.api import create_app
 from research_auto.config import get_settings
 from research_auto.db import Database
 from research_auto.jobs import JobWorker
-from research_auto.llm import (
-    PROMPT_VERSION,
-    build_provider,
-    fallback_answer_from_summary,
-)
+from research_auto.llm import PROMPT_VERSION, build_provider
 
 
 ICSE_2026_TRACK_URL = "https://conf.researchr.org/track/icse-2026/icse-2026-research-track?#event-overview"
@@ -29,20 +35,22 @@ def bootstrap_db() -> None:
 def seed_icse() -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    conference = db.upsert_conference(
+    catalog = PostgresCatalogAdmin(db)
+    jobs = PostgresJobQueueAdmin(db)
+    conference = catalog.upsert_conference(
         slug="icse-2026",
         name="ICSE 2026",
         year=2026,
         homepage_url=ICSE_2026_HOME_URL,
         source_system="researchr",
     )
-    track = db.upsert_track(
+    track = catalog.upsert_track(
         conference_id=conference["id"],
         slug="research-track",
         name="Research Track",
         track_url=ICSE_2026_TRACK_URL,
     )
-    db.enqueue_job(
+    jobs.enqueue_job(
         job_type="crawl_track",
         payload={
             "conference_id": conference["id"],
@@ -60,6 +68,8 @@ def seed_icse() -> None:
 def enqueue_resolve(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
+    queries = PostgresSqlQueries(db)
+    jobs = PostgresJobQueueAdmin(db)
     query = """
         select p.id, p.detail_url
         from papers p
@@ -77,10 +87,10 @@ def enqueue_resolve(limit: int | None) -> None:
     if limit is not None:
         query += " limit %s"
         params = (limit,)
-    rows = db.list_rows(query, params)
+    rows = queries.list_rows(query, params)
     inserted = 0
     for row in rows:
-        did_insert = db.enqueue_job(
+        did_insert = jobs.enqueue_job(
             job_type="resolve_paper_artifacts",
             payload={"paper_id": row["id"], "detail_url": row["detail_url"]},
             dedupe_key=f"resolve_paper_artifacts:{row['id']}",
@@ -94,7 +104,8 @@ def enqueue_resolve(limit: int | None) -> None:
 def repair_resolution_status() -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    before = db.get_row(
+    queries = PostgresSqlQueries(db)
+    before = queries.get_row(
         """
         select count(*) as count
         from papers
@@ -112,7 +123,7 @@ def repair_resolution_status() -> None:
                 """
             )
         conn.commit()
-    after = db.get_row(
+    after = queries.get_row(
         """
         select count(*) as count
         from papers
@@ -126,6 +137,8 @@ def repair_resolution_status() -> None:
 def enqueue_parse(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
+    queries = PostgresSqlQueries(db)
+    jobs = PostgresJobQueueAdmin(db)
     query = """
         select id, paper_id, local_path
         from artifacts
@@ -138,9 +151,9 @@ def enqueue_parse(limit: int | None) -> None:
     if limit is not None:
         query += " limit %s"
         params = (limit,)
-    rows = db.list_rows(query, params)
+    rows = queries.list_rows(query, params)
     for row in rows:
-        db.enqueue_job(
+        jobs.enqueue_job(
             job_type="parse_artifact",
             payload={
                 "paper_id": row["paper_id"],
@@ -156,14 +169,16 @@ def enqueue_parse(limit: int | None) -> None:
 def enqueue_summarize(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
+    queries = PostgresSqlQueries(db)
+    jobs = PostgresJobQueueAdmin(db)
     query = "select id, paper_id from paper_parses order by created_at asc"
     params: tuple[object, ...] = ()
     if limit is not None:
         query += " limit %s"
         params = (limit,)
-    rows = db.list_rows(query, params)
+    rows = queries.list_rows(query, params)
     for row in rows:
-        db.enqueue_job(
+        jobs.enqueue_job(
             job_type="summarize_paper",
             payload={"paper_id": row["paper_id"], "paper_parse_id": row["id"]},
             dedupe_key=f"summarize_paper:{row['id']}:{settings.llm_provider}:{settings.llm_model}:{PROMPT_VERSION}",
@@ -175,6 +190,8 @@ def enqueue_summarize(limit: int | None) -> None:
 def enqueue_resummarize_fallbacks(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
+    queries = PostgresSqlQueries(db)
+    jobs = PostgresJobQueueAdmin(db)
     query = """
         select distinct on (paper_parse_id) paper_parse_id as id, paper_id
         from paper_summaries
@@ -185,9 +202,9 @@ def enqueue_resummarize_fallbacks(limit: int | None) -> None:
     if limit is not None:
         query += " limit %s"
         params = (limit,)
-    rows = db.list_rows(query, params)
+    rows = queries.list_rows(query, params)
     for row in rows:
-        db.enqueue_job(
+        jobs.enqueue_job(
             job_type="summarize_paper",
             payload={"paper_id": row["paper_id"], "paper_parse_id": row["id"]},
             dedupe_key=f"resummarize_paper:{row['id']}:{settings.llm_provider}:{settings.llm_model}:{PROMPT_VERSION}",
@@ -200,106 +217,26 @@ def enqueue_resummarize_fallbacks(limit: int | None) -> None:
 def search_papers_cli(query: str, limit: int) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    like_q = f"%{query}%"
-    rows = db.list_rows(
-        """
-        select distinct on (p.id)
-            p.id,
-            p.canonical_title,
-            s.summary_short,
-            s.summary_short_zh,
-            s.research_question_zh,
-            p.best_pdf_url,
-            ts_rank_cd(
-                setweight(to_tsvector('english', coalesce(p.canonical_title, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(p.abstract, '')), 'B') ||
-                setweight(to_tsvector('english', coalesce(s.summary_short, '')), 'B') ||
-                setweight(to_tsvector('simple', coalesce(s.summary_short_zh, '')), 'B') ||
-                setweight(to_tsvector('english', coalesce(pp.full_text, '')), 'C'),
-                plainto_tsquery('english', %s)
-            ) as rank
-        from papers p
-        left join paper_summaries s on s.paper_id = p.id
-        left join paper_parses pp on pp.paper_id = p.id
-        where (
-            setweight(to_tsvector('english', coalesce(p.canonical_title, '')), 'A') ||
-            setweight(to_tsvector('english', coalesce(p.abstract, '')), 'B') ||
-            setweight(to_tsvector('english', coalesce(s.summary_short, '')), 'B') ||
-            setweight(to_tsvector('simple', coalesce(s.summary_short_zh, '')), 'B') ||
-            setweight(to_tsvector('english', coalesce(pp.full_text, '')), 'C')
-        ) @@ plainto_tsquery('english', %s)
-        or p.canonical_title ilike %s
-        or coalesce(p.abstract, '') ilike %s
-        or coalesce(s.summary_short, '') ilike %s
-        or coalesce(s.summary_short_zh, '') ilike %s
-        order by p.id, rank desc nulls last, s.created_at desc nulls last
-        limit %s
-        """,
-        (query, query, like_q, like_q, like_q, like_q, limit),
-    )
+    rows = ReadQueryService(PostgresReadRepository(db)).search_papers(query, limit)
     print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
 
 
 def show_paper_cli(paper_id: str) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    paper = db.get_row("select * from papers where id = %s", (paper_id,))
-    authors = db.list_rows(
-        "select author_order, display_name from paper_authors where paper_id = %s order by author_order asc",
-        (paper_id,),
-    )
-    summary = db.get_row(
-        """
-        select *
-        from paper_summaries
-        where paper_id = %s
-        order by created_at desc
-        limit 1
-        """,
-        (paper_id,),
-    )
-    payload = {"paper": paper, "authors": authors, "summary": summary}
+    payload = ReadQueryService(PostgresReadRepository(db)).get_paper_detail(paper_id)
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
 def ask_paper_cli(paper_id: str, question: str, limit: int) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    provider = build_provider(settings)
-    rows = db.list_rows(
-        """
-        select content
-        from paper_chunks
-        where paper_id = %s
-        order by ts_rank_cd(to_tsvector('english', coalesce(content, '')), plainto_tsquery('english', %s)) desc,
-                 chunk_index asc
-        limit %s
-        """,
-        (paper_id, question, limit),
+    service = QuestionAnswerService(
+        PostgresReadRepository(db), build_provider(settings)
     )
-    context_chunks = [row["content"] for row in rows]
-    try:
-        answer = provider.answer_question(
-            question=question,
-            paper_context="\n\n---\n\n".join(context_chunks),
-            chunk_quotes=context_chunks,
-        )
-    except Exception:
-        summary = db.get_row(
-            "select * from paper_summaries where paper_id = %s order by created_at desc limit 1",
-            (paper_id,),
-        )
-        answer = fallback_answer_from_summary(
-            question=question, summary_row=summary, chunk_quotes=context_chunks
-        )
     print(
         json.dumps(
-            {
-                "answer": answer.answer,
-                "answer_zh": answer.answer_zh,
-                "evidence_quotes": answer.evidence_quotes,
-                "confidence": answer.confidence,
-            },
+            service.ask_paper(paper_id=paper_id, question=question, limit=limit),
             ensure_ascii=False,
             indent=2,
             default=str,
@@ -310,44 +247,12 @@ def ask_paper_cli(paper_id: str, question: str, limit: int) -> None:
 def ask_library_cli(question: str, limit: int) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    provider = build_provider(settings)
-    rows = db.list_rows(
-        """
-        select p.id as paper_id, p.canonical_title, pc.content
-        from paper_chunks pc
-        join papers p on p.id = pc.paper_id
-        order by ts_rank_cd(to_tsvector('english', coalesce(pc.content, '')), plainto_tsquery('english', %s)) desc,
-                 pc.created_at asc
-        limit %s
-        """,
-        (question, limit),
+    service = QuestionAnswerService(
+        PostgresReadRepository(db), build_provider(settings)
     )
-    context_chunks = [f"[{row['canonical_title']}] {row['content']}" for row in rows]
-    try:
-        answer = provider.answer_question(
-            question=question,
-            paper_context="\n\n---\n\n".join(context_chunks),
-            chunk_quotes=context_chunks,
-        )
-    except Exception:
-        summary = None
-        if rows:
-            summary = db.get_row(
-                "select * from paper_summaries where paper_id = %s order by created_at desc limit 1",
-                (rows[0]["paper_id"],),
-            )
-        answer = fallback_answer_from_summary(
-            question=question, summary_row=summary, chunk_quotes=context_chunks
-        )
     print(
         json.dumps(
-            {
-                "answer": answer.answer,
-                "answer_zh": answer.answer_zh,
-                "evidence_quotes": answer.evidence_quotes,
-                "confidence": answer.confidence,
-                "papers": dedupe_papers_cli(rows),
-            },
+            service.ask_library(question=question, limit=limit),
             ensure_ascii=False,
             indent=2,
             default=str,
@@ -374,20 +279,6 @@ def drain_worker(queue: str | None) -> None:
 
 def run_api(host: str, port: int) -> None:
     uvicorn.run(create_app(), host=host, port=port)
-
-
-def dedupe_papers_cli(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    seen: set[str] = set()
-    result: list[dict[str, object]] = []
-    for row in rows:
-        paper_id = str(row["paper_id"])
-        if paper_id in seen:
-            continue
-        seen.add(paper_id)
-        result.append(
-            {"paper_id": row["paper_id"], "canonical_title": row["canonical_title"]}
-        )
-    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
