@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ paper.canonical_title }} | research-auto{% endblock %}
+{% block content %}
+<section class="mb-4">
+  <h1 class="h2 mb-2">{{ paper.canonical_title }}</h1>
+  <p class="text-body-secondary mb-0">{{ paper.conference_name }}{% if paper.track_name %} / {{ paper.track_name }}{% endif %}</p>
+</section>
+
+<div class="row g-4">
+  <aside class="col-lg-4 col-xl-3">
+  <div class="card shadow-sm">
+    <div class="card-body">
+    <h2 class="h5">Metadata</h2>
+    <dl class="row mb-0 small">
+      <dt>Year</dt><dd>{{ paper.year }}</dd>
+      <dt>Session</dt><dd>{{ paper.session_name or '-' }}</dd>
+      <dt>Resolved</dt><dd>{% include "partials/status_badge.html" with context %}</dd>
+      <dt>PDF</dt><dd>{% if paper.best_pdf_url %}<a href="{{ paper.best_pdf_url }}">Open PDF</a>{% else %}-{% endif %}</dd>
+      <dt>Landing</dt><dd>{% if paper.best_landing_url %}<a href="{{ paper.best_landing_url }}">Open</a>{% else %}-{% endif %}</dd>
+      <dt>Detail</dt><dd>{% if paper.detail_url %}<a href="{{ paper.detail_url }}">Conference page</a>{% else %}-{% endif %}</dd>
+    </dl>
+    <h3 class="h6 mt-4">Authors</h3>
+    <ul class="mb-0">{% for author in authors %}<li>{{ author.display_name }}</li>{% endfor %}</ul>
+    {% if artifacts %}
+    <h3 class="h6 mt-4">Artifacts</h3>
+    <ul class="mb-0 small">
+      {% for artifact in artifacts %}
+      <li>
+        <code>{{ artifact.artifact_kind }}</code>
+        {% if artifact.resolution_reason %}<span class="text-body-secondary">· {{ artifact.resolution_reason }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    </div>
+  </div>
+  </aside>
+
+  <section class="col-lg-8 col-xl-9">
+    <section class="card shadow-sm mb-4">
+      <div class="card-body">
+      <h2 class="h5">Structured Summary</h2>
+      {% include "partials/summary_block.html" %}
+      </div>
+    </section>
+
+    <section class="card shadow-sm mb-4">
+      <div class="card-body">
+      <h2 class="h5">Citation</h2>
+      <pre class="mb-0"><code>{{ bibtex }}</code></pre>
+      </div>
+    </section>
+
+    <section class="card shadow-sm mb-4">
+      <div class="card-body">
+      <h2 class="h5">Parse Overview</h2>
+      {% if parse %}
+      <dl class="row mb-3 small">
+        <dt>Parser</dt><dd>{{ parse.parser_version }}</dd>
+        <dt>Pages</dt><dd>{{ parse.page_count }}</dd>
+        <dt>Content hash</dt><dd><code>{{ parse.content_hash }}</code></dd>
+      </dl>
+      <h3 class="h6">Abstract / 摘要</h3>
+      <p>{{ parse.abstract_text or paper.abstract or '-' }}</p>
+      {% else %}
+      <p class="text-body-secondary mb-0">No parse available.</p>
+      {% endif %}
+      </div>
+    </section>
+
+    <section class="card shadow-sm">
+      <div class="card-body">
+      <h2 class="h5">Chunk Preview</h2>
+      {% if chunks %}
+      <div class="d-grid gap-3">
+        {% for chunk in chunks %}
+        <article>
+          <div class="text-body-secondary small mb-2">Chunk {{ chunk.chunk_index }} · {{ chunk.token_count }} tokens</div>
+          <pre class="mb-0">{{ chunk.content }}</pre>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-body-secondary mb-0">No chunk preview available.</p>
+      {% endif %}
+      </div>
+    </section>
+  </section>
+</div>
+{% endblock %}

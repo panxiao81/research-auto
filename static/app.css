@@ -1,0 +1,46 @@
+body {
+  min-height: 100vh;
+}
+
+.table-responsive {
+  overflow-x: auto;
+}
+
+.sheet-table {
+  min-width: 960px;
+}
+
+.sheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bs-tertiary-bg);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color);
+  white-space: nowrap;
+}
+
+.sheet-table tbody td {
+  vertical-align: top;
+}
+
+.sheet-table td:first-child,
+.sheet-table th:first-child {
+  min-width: 28rem;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+code {
+  word-break: break-word;
+}

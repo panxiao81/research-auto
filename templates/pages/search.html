@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Search | research-auto{% endblock %}
+{% block content %}
+<section class="d-flex justify-content-between align-items-end mb-4 gap-3 flex-wrap">
+  <h1 class="h2 mb-0">Search</h1>
+  <form class="d-flex gap-2" method="get" action="/ui/search">
+    <input class="form-control" type="search" name="q" value="{{ q }}" placeholder="Search by title, summary, or extracted text">
+    <button class="btn btn-primary" type="submit">Search</button>
+  </form>
+</section>
+
+{% if q %}
+<section class="row g-3">
+  {% for row in results %}
+  <article class="col-12">
+    <div class="card shadow-sm h-100"><div class="card-body">
+    <h2 class="h5"><a href="/ui/papers/{{ row.id }}">{{ row.canonical_title }}</a></h2>
+    <div class="d-flex gap-2 flex-wrap mb-2">
+      {% if row.best_pdf_url %}<span class="badge text-bg-success">PDF</span>{% endif %}
+      {% if row.resolution_status == 'resolved' %}<span class="badge text-bg-secondary">Resolved</span>{% endif %}
+    </div>
+    <p class="mb-2">{{ row.summary_short_zh or row.summary_short or 'No summary yet.' }}</p>
+    {% if row.research_question_zh or row.research_question %}<p class="text-body-secondary mb-0">{{ row.research_question_zh or row.research_question }}</p>{% endif %}
+    </div></div>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

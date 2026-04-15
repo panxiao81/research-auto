@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Stats | research-auto{% endblock %}
+{% block content %}
+<section class="mb-4"><h1 class="h2 mb-0">Stats</h1></section>
+<section class="row g-3 mb-4">
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Papers</div><div class="display-6 fw-semibold">{{ stats.papers_total }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Resolved</div><div class="display-6 fw-semibold">{{ stats.papers_resolved }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Unresolved</div><div class="display-6 fw-semibold">{{ stats.papers_unresolved }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">With PDF</div><div class="display-6 fw-semibold">{{ stats.papers_with_pdf }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Resolved w/o PDF</div><div class="display-6 fw-semibold">{{ stats.resolved_without_pdf }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Parsed</div><div class="display-6 fw-semibold">{{ stats.paper_parses }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Summaries</div><div class="display-6 fw-semibold">{{ stats.paper_summaries }}</div></div></div></div>
+  <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body"><div class="text-body-secondary small">Failed Jobs</div><div class="display-6 fw-semibold">{{ stats.jobs_failed }}</div></div></div></div>
+</section>
+
+<div class="row g-4">
+  <section class="col-lg-4"><div class="card shadow-sm"><div class="card-body">
+    <h2 class="h5">Summary Providers</h2>
+    <ul class="mb-0">{% for row in stats.summary_providers %}<li>{{ row.provider }}: {{ row.count }}</li>{% endfor %}</ul>
+  </div></div></section>
+  <section class="col-lg-4"><div class="card shadow-sm"><div class="card-body">
+    <h2 class="h5">Artifact Kinds</h2>
+    <ul class="mb-0">{% for row in stats.artifact_kinds %}<li>{{ row.artifact_kind }}: {{ row.count }}</li>{% endfor %}</ul>
+  </div></div></section>
+  <section class="col-lg-4"><div class="card shadow-sm"><div class="card-body">
+    <h2 class="h5">Failed Job Types</h2>
+    <ul class="mb-0">{% for row in stats.failed_job_types %}<li>{{ row.job_type }}: {{ row.count }}</li>{% endfor %}</ul>
+  </div></div></section>
+  <section class="col-lg-4"><div class="card shadow-sm"><div class="card-body">
+    <h2 class="h5">Fallback Reasons</h2>
+    <ul class="mb-0">{% for row in stats.fallback_reasons %}<li>{{ row.reason }}: {{ row.count }}</li>{% endfor %}</ul>
+  </div></div></section>
+</div>
+{% endblock %}

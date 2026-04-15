@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Papers | research-auto{% endblock %}
+{% block content %}
+<section class="d-flex justify-content-between align-items-end mb-4 gap-3 flex-wrap">
+  <div>
+    <h1 class="h2 mb-1">Papers</h1>
+    <p class="text-body-secondary mb-0">Sheet view for browsing papers, coverage, and reading status.</p>
+  </div>
+  <div class="text-body-secondary small">{{ result.total }} total</div>
+</section>
+
+<form class="card shadow-sm mb-4" method="get" action="/ui/papers">
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-md-6 col-xl-3"><label class="form-label">Search</label><input class="form-control" type="search" name="q" value="{{ q }}"></div>
+      <div class="col-6 col-md-3 col-xl-2"><label class="form-label">Sort</label>
+      <select class="form-select" name="sort">
+        <option value="ready" {% if sort == 'ready' %}selected{% endif %}>Summarized first</option>
+        <option value="updated" {% if sort == 'updated' %}selected{% endif %}>Updated</option>
+        <option value="title" {% if sort == 'title' %}selected{% endif %}>Title</option>
+        <option value="year" {% if sort == 'year' %}selected{% endif %}>Year</option>
+      </select>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2"><label class="form-label">Order</label>
+      <select class="form-select" name="order">
+        <option value="desc" {% if order == 'desc' %}selected{% endif %}>Desc</option>
+        <option value="asc" {% if order == 'asc' %}selected{% endif %}>Asc</option>
+      </select>
+      </div>
+      <div class="col-6 col-md-3 col-xl-1"><label class="form-label">Resolved</label><select class="form-select" name="resolved"><option value="">Any</option><option value="true" {% if filters.resolved == 'true' %}selected{% endif %}>Yes</option><option value="false" {% if filters.resolved == 'false' %}selected{% endif %}>No</option></select></div>
+      <div class="col-6 col-md-3 col-xl-1"><label class="form-label">PDF</label><select class="form-select" name="has_pdf"><option value="">Any</option><option value="true" {% if filters.has_pdf == 'true' %}selected{% endif %}>Yes</option><option value="false" {% if filters.has_pdf == 'false' %}selected{% endif %}>No</option></select></div>
+      <div class="col-6 col-md-3 col-xl-1"><label class="form-label">Parsed</label><select class="form-select" name="parsed"><option value="">Any</option><option value="true" {% if filters.parsed == 'true' %}selected{% endif %}>Yes</option><option value="false" {% if filters.parsed == 'false' %}selected{% endif %}>No</option></select></div>
+      <div class="col-6 col-md-3 col-xl-1"><label class="form-label">Summary</label><select class="form-select" name="summarized"><option value="">Any</option><option value="true" {% if filters.summarized == 'true' %}selected{% endif %}>Yes</option><option value="false" {% if filters.summarized == 'false' %}selected{% endif %}>No</option></select></div>
+      <div class="col-12 col-md-4 col-xl-2"><label class="form-label">Provider</label><select class="form-select" name="provider"><option value="">Any</option>{% for row in providers %}<option value="{{ row.provider }}" {% if filters.provider == row.provider %}selected{% endif %}>{{ row.provider }}</option>{% endfor %}</select></div>
+      <div class="col-12 col-md-2 col-xl-1"><button class="btn btn-primary w-100" type="submit">Apply</button></div>
+    </div>
+  </div>
+</form>
+
+<section class="card shadow-sm">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2 class="h5 mb-0">{{ result.total }} papers</h2>
+      <div class="text-body-secondary small">Page {{ result.page }} / {{ result.total_pages }}</div>
+    </div>
+    {% include "partials/paper_table.html" with context %}
+    <div class="d-flex justify-content-between mt-3">
+      {% if result.page > 1 %}
+        <a class="btn btn-outline-secondary btn-sm" href="?q={{ q }}&sort={{ sort }}&order={{ order }}&resolved={{ filters.resolved }}&has_pdf={{ filters.has_pdf }}&parsed={{ filters.parsed }}&summarized={{ filters.summarized }}&provider={{ filters.provider }}&page={{ result.page - 1 }}&page_size={{ result.page_size }}">Previous</a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      {% if result.page < result.total_pages %}
+        <a class="btn btn-outline-secondary btn-sm" href="?q={{ q }}&sort={{ sort }}&order={{ order }}&resolved={{ filters.resolved }}&has_pdf={{ filters.has_pdf }}&parsed={{ filters.parsed }}&summarized={{ filters.summarized }}&provider={{ filters.provider }}&page={{ result.page + 1 }}&page_size={{ result.page_size }}">Next</a>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

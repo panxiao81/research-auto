@@ -1,0 +1,31 @@
+{% if summary %}
+<div class="summary-block">
+  <div class="border-bottom pb-3 mb-3">
+    <h3 class="h6 text-uppercase text-body-secondary">研究问题</h3>
+    <p class="mb-2">{{ summary.research_question_zh or '-' }}</p>
+    <h4 class="h6 text-body-secondary">Research Question</h4>
+    <p class="mb-0">{{ summary.research_question or '-' }}</p>
+  </div>
+  <div class="border-bottom pb-3 mb-3">
+    <h3 class="h6 text-uppercase text-body-secondary">结论</h3>
+    <p class="mb-2">{{ summary.conclusions_zh or '-' }}</p>
+    <h4 class="h6 text-body-secondary">Conclusions</h4>
+    <p class="mb-0">{{ summary.conclusions or '-' }}</p>
+  </div>
+  <div class="border-bottom pb-3 mb-3">
+    <h3 class="h6 text-uppercase text-body-secondary">未来工作</h3>
+    <p class="mb-2">{{ summary.future_work_zh or '-' }}</p>
+    <h4 class="h6 text-body-secondary">Future Work</h4>
+    <p class="mb-0">{{ summary.future_work or '-' }}</p>
+  </div>
+  <div>
+    <h3 class="h6 text-uppercase text-body-secondary">中文摘要</h3>
+    <p class="mb-3">{{ summary.summary_long_zh or summary.summary_short_zh or '-' }}</p>
+    <h4 class="h6 text-body-secondary">English Summary</h4>
+    <p class="mb-0">{{ summary.summary_long or summary.summary_short or '-' }}</p>
+  </div>
+  <div class="small text-body-secondary mt-3">{{ summary.provider }} · {{ summary.model_name }} · {{ summary.prompt_version }}</div>
+</div>
+{% else %}
+<p class="text-body-secondary mb-0">No summary available.</p>
+{% endif %}

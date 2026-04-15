@@ -1,0 +1,8 @@
+{% set status_obj = paper if paper is defined else row %}
+{% if status_obj.resolution_status == 'resolved' %}
+<span class="badge text-bg-success">Resolved</span>
+{% elif status_obj.resolution_status == 'unresolved' %}
+<span class="badge text-bg-warning">Unresolved</span>
+{% else %}
+<span class="badge text-bg-secondary">{{ status_obj.resolution_status or 'pending' }}</span>
+{% endif %}

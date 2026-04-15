@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Jobs | research-auto{% endblock %}
+{% block content %}
+<section class="mb-4"><h1 class="h2 mb-0">Jobs</h1></section>
+<form class="card shadow-sm mb-4" method="get" action="/ui/jobs">
+  <div class="card-body">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-4"><label class="form-label">Status</label><input class="form-control" type="text" name="status" value="{{ status }}"></div>
+    <div class="col-md-4"><label class="form-label">Job Type</label><input class="form-control" type="text" name="job_type" value="{{ job_type }}"></div>
+    <div class="col-md-2"><label class="form-label">Limit</label><input class="form-control" type="number" name="limit" value="{{ limit }}"></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Apply</button></div>
+  </div>
+  </div>
+</form>
+
+<section class="card shadow-sm">
+  <div class="card-body p-0 table-wrap">
+  <table class="table table-sm align-middle mb-0">
+    <thead>
+      <tr><th>Type</th><th>Status</th><th>Priority</th><th>Attempts</th><th>Updated</th><th>Error</th></tr>
+    </thead>
+    <tbody>
+      {% for row in jobs %}
+      <tr>
+        <td><code>{{ row.job_type }}</code></td>
+        <td><span class="badge {% if row.status == 'succeeded' %}text-bg-success{% elif row.status == 'failed' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ row.status }}</span></td>
+        <td>{{ row.priority }}</td>
+        <td>{{ row.attempt_count }} / {{ row.max_attempts }}</td>
+        <td>{{ row.updated_at }}</td>
+        <td class="small text-danger">{{ row.last_error or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

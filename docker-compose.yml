@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: research_auto
+      POSTGRES_USER: research_auto
+      POSTGRES_PASSWORD: research_auto
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U research_auto -d research_auto"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bootstrap:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
+      PLAYWRIGHT_HEADLESS: "true"
+    command: ["uv", "run", "python", "scripts/trigger_pipeline.py", "--bootstrap-db", "--seed-icse", "--drain"]
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
+      PLAYWRIGHT_HEADLESS: "true"
+    ports:
+      - "8000:8000"
+    command: ["uv", "run", "research-auto", "api", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
+      PLAYWRIGHT_HEADLESS: "true"
+    command: ["uv", "run", "research-auto", "worker"]
+
+volumes:
+  postgres_data:
