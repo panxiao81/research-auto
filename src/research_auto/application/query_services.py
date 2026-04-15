@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from math import ceil
 from typing import Any, Protocol
 
-from research_auto.llm import QuestionAnswer, fallback_answer_from_summary
+from research_auto.application.llm_types import (
+    QuestionAnswer,
+    fallback_answer_from_summary,
+)
 
 
 @dataclass(slots=True)

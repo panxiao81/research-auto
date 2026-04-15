@@ -4,7 +4,7 @@ from research_auto.application.query_services import (
     QuestionAnswerService,
     ReadQueryService,
 )
-from research_auto.llm import QuestionAnswer
+from research_auto.application.llm_types import QuestionAnswer
 
 
 class FakeReadRepository:

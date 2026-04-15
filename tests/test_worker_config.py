@@ -4,8 +4,8 @@ from research_auto.application.queue_policies import (
     get_queue_policy as get_application_queue_policy,
 )
 from research_auto.config import Settings
-from research_auto.jobs import get_queue_policy
-from research_auto.llm import MockProvider, build_provider
+from research_auto.application.queue_policies import get_queue_policy
+from research_auto.infrastructure.llm.provider import MockProvider, build_provider
 
 
 def _settings(**overrides: str) -> Settings:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from research_auto.api import create_app
+from research_auto.interfaces.api.app import create_app
 
 
 def _client() -> TestClient:

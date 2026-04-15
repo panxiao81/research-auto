@@ -1,4 +1,4 @@
-from research_auto.cli import main
+from research_auto.interfaces.cli.app import main
 
 
 if __name__ == "__main__":

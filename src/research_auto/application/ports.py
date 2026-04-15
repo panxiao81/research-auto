@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from research_auto.llm import PaperSummary
-from research_auto.models import CrawlResult
-from research_auto.parsers import ParsedPaper
-from research_auto.resolvers import ArtifactRecord
+from research_auto.application.llm_types import PaperSummary
+from research_auto.domain.records import ArtifactRecord, CrawlResult, ParsedPaper
 
 
 @dataclass(frozen=True, slots=True)

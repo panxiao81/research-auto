@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-research-auto = "research_auto.cli:main"
+research-auto = "research_auto.interfaces.cli.app:main"
 
 [build-system]
 requires = ["uv_build>=0.11.6,<0.12.0"]

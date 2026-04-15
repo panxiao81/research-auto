@@ -11,7 +11,8 @@ from research_auto.application.ports import (
     ResolutionGateway,
     SummaryGateway,
 )
-from research_auto.llm import PaperSummary, build_fallback_summary
+from research_auto.application.llm import build_fallback_summary
+from research_auto.application.llm_types import PaperSummary
 
 
 class JobExecutor:
