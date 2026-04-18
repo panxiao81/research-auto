@@ -15,24 +15,11 @@ services:
       timeout: 5s
       retries: 10
 
-  bootstrap:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
-      PLAYWRIGHT_HEADLESS: "true"
-    command: ["uv", "run", "python", "scripts/trigger_pipeline.py", "--bootstrap-db", "--seed-icse", "--drain"]
-    restart: "no"
-
   api:
     build: .
     depends_on:
       postgres:
         condition: service_healthy
-      bootstrap:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
       PLAYWRIGHT_HEADLESS: "true"
@@ -45,8 +32,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      bootstrap:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://research_auto:research_auto@postgres:5432/research_auto
       PLAYWRIGHT_HEADLESS: "true"

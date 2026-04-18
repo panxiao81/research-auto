@@ -2,23 +2,26 @@ FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy \
-    PATH="/root/.local/bin:${PATH}"
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
+    && pip install --no-cache-dir uv \
+    && uv sync --frozen --no-dev \
+    && uv run playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml README.md ./
-COPY src ./src
-COPY scripts ./scripts
+COPY static ./static
+COPY templates ./templates
 
-RUN uv sync --frozen || uv sync
-RUN uv run playwright install --with-deps chromium
+RUN useradd -m appuser
+USER appuser
 
 EXPOSE 8000
 
