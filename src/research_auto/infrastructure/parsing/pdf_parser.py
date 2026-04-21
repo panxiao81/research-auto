@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from typing import BinaryIO
 
 from pypdf import PdfReader
 
@@ -11,8 +12,8 @@ from research_auto.domain.records import ParsedPaper
 PARSER_VERSION = "pdf-v1"
 
 
-def parse_pdf_file(path: str) -> ParsedPaper:
-    reader = PdfReader(path)
+def parse_pdf_file(source: str | BinaryIO) -> ParsedPaper:
+    reader = PdfReader(source)
     pages: list[str] = []
     for page in reader.pages:
         text = page.extract_text() or ""

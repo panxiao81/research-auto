@@ -57,16 +57,16 @@ This repository builds a conference-paper ingestion and reading pipeline:
 ## Common Commands
 
 ```bash
-uv run research-auto bootstrap-db
-uv run research-auto seed-icse
-uv run research-auto enqueue-resolve --limit 50
-uv run research-auto enqueue-parse --limit 50
-uv run research-auto enqueue-summarize --limit 50
-uv run research-auto enqueue-resummarize-fallbacks --limit 20
-uv run research-auto repair-resolution-status
-uv run research-auto drain --queue llm
-uv run research-auto worker --queue resolve
-uv run research-auto api --host 127.0.0.1 --port 8000
+uv run research-auto setup bootstrap-db
+uv run research-auto setup seed icse
+uv run research-auto pipeline resolve --limit 50
+uv run research-auto pipeline parse --limit 50
+uv run research-auto pipeline summarize --limit 50
+uv run research-auto pipeline resummarize-fallbacks --limit 20
+uv run research-auto pipeline repair-resolution-status
+uv run research-auto pipeline drain --queue llm
+uv run research-auto serve worker --queue resolve
+uv run research-auto serve api --host 127.0.0.1 --port 8000
 uv run pytest -q
 ```
 

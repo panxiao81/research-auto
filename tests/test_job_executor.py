@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from io import BytesIO
 
 from research_auto.application.job_executor import JobExecutor
 from research_auto.application.ports import (
@@ -9,6 +9,7 @@ from research_auto.application.ports import (
     SummaryMaterial,
 )
 from research_auto.application.llm_types import PaperSummary
+from research_auto.application.storage_types import DownloadResult, StorageWriteResult
 from research_auto.domain.records import ArtifactRecord, CrawlResult, ParsedPaper
 
 
@@ -37,6 +38,7 @@ class FakeRepository:
             chunks=["chunk a", "chunk b"],
         )
         self.saved_resolution: ResolutionResult | None = None
+        self.saved_parse: ParsedPaper | None = None
         self.saved_summary: tuple[str, PaperSummary] | None = None
 
     def replace_crawl_results(
@@ -67,7 +69,7 @@ class FakeRepository:
         llm_provider: str,
         llm_model: str,
     ) -> None:
-        return None
+        self.saved_parse = parsed
 
     def get_summary_material(
         self, *, paper_id: str, paper_parse_id: str
@@ -116,14 +118,12 @@ class FakeResolver:
 
 
 class FakeDownloader:
-    def download(
-        self, *, url: str, artifact_root: str, paper_id: str, label: str | None
-    ) -> object:
+    def download(self, *, url: str, paper_id: str, label: str | None) -> object:
         raise NotImplementedError
 
 
 class FakeParser:
-    def parse(self, *, local_path: str) -> ParsedPaper:
+    def parse(self, *, storage_uri: str) -> ParsedPaper:
         raise NotImplementedError
 
 
@@ -163,10 +163,10 @@ def _executor(repo: FakeRepository, queue: FakeQueue) -> JobExecutor:
         crawler=FakeCrawler(),
         resolver=FakeResolver(),
         downloader=FakeDownloader(),
+        storage=object(),
         parser=FakeParser(),
         summarizer=FakeSummarizer(),
         playwright_headless=True,
-        artifact_root="data/artifacts",
         parser_version="pdf-v1",
         prompt_version="summary-v3",
         llm_provider="github_copilot_oauth",
@@ -199,3 +199,144 @@ def test_job_executor_saves_summary_via_port() -> None:
 
     assert repo.saved_summary is not None
     assert repo.saved_summary[0] == "litellm"
+
+
+def test_job_executor_downloads_writes_and_queues_parse() -> None:
+    queue = FakeQueue()
+
+    class Repo(FakeRepository):
+        def mark_artifact_downloaded(
+            self, *, paper_id: str, url: str, result: object
+        ) -> dict[str, object] | None:
+            return {"id": "artifact-1", "mime_type": "application/pdf"}
+
+    class Downloader:
+        def download(
+            self, *, url: str, paper_id: str, label: str | None
+        ) -> DownloadResult:
+            return DownloadResult(
+                content=b"%PDF-1.4",
+                file_name="paper.pdf",
+                checksum_sha256="abc",
+                byte_size=8,
+                mime_type="application/pdf",
+            )
+
+    class Storage:
+        def __init__(self) -> None:
+            self.writes: list[tuple[str, str, bytes]] = []
+
+        def write(
+            self,
+            *,
+            paper_id: str,
+            file_name: str,
+            content: bytes,
+            mime_type: str | None,
+        ) -> StorageWriteResult:
+            self.writes.append((paper_id, file_name, content))
+            return StorageWriteResult(
+                storage_uri=f"local://{paper_id}/{file_name}",
+                storage_key=f"{paper_id}/{file_name}",
+                byte_size=len(content),
+                mime_type=mime_type,
+                checksum_sha256="abc",
+            )
+
+        def read(self, *, storage_uri: str):
+            return BytesIO(b"%PDF-1.4")
+
+    storage = Storage()
+    executor = JobExecutor(
+        repository=Repo(),
+        queue=queue,
+        crawler=FakeCrawler(),
+        resolver=FakeResolver(),
+        downloader=Downloader(),
+        storage=storage,
+        parser=FakeParser(),
+        summarizer=FakeSummarizer(),
+        playwright_headless=True,
+        parser_version="pdf-v1",
+        prompt_version="summary-v3",
+        llm_provider="github_copilot_oauth",
+        llm_model="gpt-5.4-mini",
+    )
+
+    executor.execute(
+        {
+            "job_type": "download_artifact",
+            "payload": {"paper_id": "paper-1", "url": "https://example.com/paper.pdf"},
+        }
+    )
+
+    assert storage.writes == [("paper-1", "paper.pdf", b"%PDF-1.4")]
+    assert queue.enqueued[0]["job_type"] == "parse_artifact"
+    assert queue.enqueued[0]["payload"]["storage_uri"] == "local://paper-1/paper.pdf"
+
+
+def test_job_executor_queues_parse_for_pdf_filename_with_generic_mime() -> None:
+    queue = FakeQueue()
+
+    class Repo(FakeRepository):
+        def mark_artifact_downloaded(
+            self, *, paper_id: str, url: str, result: object
+        ) -> dict[str, object] | None:
+            return {"id": "artifact-1", "mime_type": "application/octet-stream"}
+
+    class Downloader:
+        def download(
+            self, *, url: str, paper_id: str, label: str | None
+        ) -> DownloadResult:
+            return DownloadResult(
+                content=b"%PDF-1.4",
+                file_name="paper.pdf",
+                checksum_sha256="abc",
+                byte_size=8,
+                mime_type="application/octet-stream",
+            )
+
+    class Storage:
+        def write(
+            self,
+            *,
+            paper_id: str,
+            file_name: str,
+            content: bytes,
+            mime_type: str | None,
+        ) -> StorageWriteResult:
+            return StorageWriteResult(
+                storage_uri=f"local://{paper_id}/{file_name}",
+                storage_key=f"{paper_id}/{file_name}",
+                byte_size=len(content),
+                mime_type=mime_type,
+                checksum_sha256="abc",
+            )
+
+        def read(self, *, storage_uri: str):
+            return BytesIO(b"%PDF-1.4")
+
+    executor = JobExecutor(
+        repository=Repo(),
+        queue=queue,
+        crawler=FakeCrawler(),
+        resolver=FakeResolver(),
+        downloader=Downloader(),
+        storage=Storage(),
+        parser=FakeParser(),
+        summarizer=FakeSummarizer(),
+        playwright_headless=True,
+        parser_version="pdf-v1",
+        prompt_version="summary-v3",
+        llm_provider="github_copilot_oauth",
+        llm_model="gpt-5.4-mini",
+    )
+
+    executor.execute(
+        {
+            "job_type": "download_artifact",
+            "payload": {"paper_id": "paper-1", "url": "https://example.com/paper.pdf"},
+        }
+    )
+
+    assert queue.enqueued[0]["job_type"] == "parse_artifact"

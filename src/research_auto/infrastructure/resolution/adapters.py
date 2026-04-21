@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from research_auto.application.ports import DownloadResult, ResolutionResult
+from research_auto.application.ports import ResolutionResult
+from research_auto.application.storage_types import DownloadResult
 from research_auto.infrastructure.resolution.service import (
     apply_arxiv_fallback_reason,
     download_artifact,
@@ -63,13 +64,14 @@ class ResolverAdapter:
         )
 
 
-class FilesystemDownloadAdapter:
+class HttpDownloadAdapter:
     def download(
-        self, *, url: str, artifact_root: str, paper_id: str, label: str | None
+        self, *, url: str, paper_id: str, label: str | None
     ) -> DownloadResult:
-        result = download_artifact(url, artifact_root, paper_id, label)
+        result = download_artifact(url, label)
         return DownloadResult(
-            local_path=result["local_path"],
+            content=result["content"],
+            file_name=result["file_name"],
             checksum_sha256=result["checksum_sha256"],
             byte_size=result["byte_size"],
             mime_type=result["mime_type"],

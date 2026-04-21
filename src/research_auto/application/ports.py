@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from research_auto.application.llm_types import PaperSummary
+from research_auto.application.storage_types import DownloadGateway, StorageWriteResult
 from research_auto.domain.records import ArtifactRecord, CrawlResult, ParsedPaper
 
 
@@ -27,14 +28,6 @@ class ResolutionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DownloadResult:
-    local_path: str
-    checksum_sha256: str
-    byte_size: int
-    mime_type: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class SummaryMaterial:
     canonical_title: str
     abstract: str | None
@@ -54,14 +47,8 @@ class ResolutionGateway(Protocol):
     ) -> ResolutionResult: ...
 
 
-class DownloadGateway(Protocol):
-    def download(
-        self, *, url: str, artifact_root: str, paper_id: str, label: str | None
-    ) -> DownloadResult: ...
-
-
 class ParseGateway(Protocol):
-    def parse(self, *, local_path: str) -> ParsedPaper: ...
+    def parse(self, *, storage_uri: str) -> ParsedPaper: ...
 
 
 class SummaryGateway(Protocol):
@@ -86,7 +73,7 @@ class PipelineRepository(Protocol):
     ) -> None: ...
 
     def mark_artifact_downloaded(
-        self, *, paper_id: str, url: str, result: DownloadResult
+        self, *, paper_id: str, url: str, result: StorageWriteResult
     ) -> dict[str, Any] | None: ...
 
     def replace_parse(

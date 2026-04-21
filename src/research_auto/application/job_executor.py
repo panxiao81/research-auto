@@ -13,6 +13,7 @@ from research_auto.application.ports import (
 )
 from research_auto.application.llm import build_fallback_summary
 from research_auto.application.llm_types import PaperSummary
+from research_auto.application.storage_types import ArtifactStorageGateway
 
 
 class JobExecutor:
@@ -24,10 +25,10 @@ class JobExecutor:
         crawler: CrawlGateway,
         resolver: ResolutionGateway,
         downloader: DownloadGateway,
+        storage: ArtifactStorageGateway,
         parser: ParseGateway,
         summarizer: SummaryGateway | None,
         playwright_headless: bool,
-        artifact_root: str,
         parser_version: str,
         prompt_version: str,
         llm_provider: str,
@@ -38,10 +39,10 @@ class JobExecutor:
         self.crawler = crawler
         self.resolver = resolver
         self.downloader = downloader
+        self.storage = storage
         self.parser = parser
         self.summarizer = summarizer
         self.playwright_headless = playwright_headless
-        self.artifact_root = artifact_root
         self.parser_version = parser_version
         self.prompt_version = prompt_version
         self.llm_provider = llm_provider
@@ -95,25 +96,30 @@ class JobExecutor:
             )
 
     def _download_artifact(self, payload: dict[str, Any]) -> None:
-        result = self.downloader.download(
+        downloaded = self.downloader.download(
             url=payload["url"],
-            artifact_root=self.artifact_root,
             paper_id=payload["paper_id"],
             label=payload.get("label"),
         )
+        stored = self.storage.write(
+            paper_id=payload["paper_id"],
+            file_name=downloaded.file_name,
+            content=downloaded.content,
+            mime_type=downloaded.mime_type,
+        )
         artifact = self.repository.mark_artifact_downloaded(
-            paper_id=payload["paper_id"], url=payload["url"], result=result
+            paper_id=payload["paper_id"], url=payload["url"], result=stored
         )
         if artifact and (
             artifact["mime_type"] == "application/pdf"
-            or str(artifact["local_path"]).lower().endswith(".pdf")
+            or stored.storage_key.lower().endswith(".pdf")
         ):
             self.queue.enqueue(
                 job_type="parse_artifact",
                 payload={
                     "paper_id": payload["paper_id"],
                     "artifact_id": str(artifact["id"]),
-                    "local_path": artifact["local_path"],
+                    "storage_uri": stored.storage_uri,
                 },
                 dedupe_key=f"parse_artifact:{artifact['id']}",
                 priority=40,
@@ -121,7 +127,7 @@ class JobExecutor:
             )
 
     def _parse_artifact(self, payload: dict[str, Any]) -> None:
-        parsed = self.parser.parse(local_path=payload["local_path"])
+        parsed = self.parser.parse(storage_uri=payload["storage_uri"])
         self.repository.replace_parse(
             payload=payload,
             parsed=parsed,

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from research_auto.infrastructure.postgres.database import Database
-from research_auto.infrastructure.postgres.repositories import PostgresJobRepository
+from research_auto.infrastructure.postgres.repositories import PostgresReadRepository
 from research_auto.interfaces.web.services import (
     get_paper_detail_for_ui,
     get_ui_stats,
@@ -81,9 +81,7 @@ def ui_papers(
         sort=sort,
         order=order,
     )
-    providers = PostgresJobRepository(db).fetch_all(
-        "select distinct provider from paper_summaries where provider is not null order by provider asc"
-    )
+    providers = PostgresReadRepository(db).list_summary_providers()
     return templates.TemplateResponse(
         request,
         "pages/papers.html",

@@ -749,26 +749,20 @@ def pick_best_urls(artifacts: list[ArtifactRecord]) -> tuple[str | None, str | N
     return best_pdf, best_landing
 
 
-def download_artifact(
-    url: str, destination_dir: str, paper_id: str, label: str | None
-) -> dict[str, Any]:
+def download_artifact(url: str, label: str | None) -> dict[str, Any]:
     preferred_label = None if looks_like_url(label) else label
     file_name = safe_file_name(
         preferred_label or Path(urlparse(url).path).name or "artifact.bin"
     )
-    target_dir = Path(destination_dir) / paper_id
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / file_name
-
     request = Request(url, headers={"User-Agent": get_user_agent()})
     with urlopen(request, timeout=120) as response:
         payload = response.read()
         content_type = response.headers.get_content_type()
 
     checksum = hashlib.sha256(payload).hexdigest()
-    target_path.write_bytes(payload)
     return {
-        "local_path": str(target_path),
+        "content": payload,
+        "file_name": file_name,
         "checksum_sha256": checksum,
         "byte_size": len(payload),
         "mime_type": content_type,

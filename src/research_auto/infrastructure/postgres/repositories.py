@@ -4,11 +4,11 @@ import json
 from typing import Any
 
 from research_auto.application.ports import (
-    DownloadResult,
     PaperResolutionContext,
     ResolutionResult,
     SummaryMaterial,
 )
+from research_auto.application.storage_types import StorageWriteResult
 from research_auto.application.query_services import Page
 from research_auto.domain.records import CrawlResult, ParsedPaper
 from research_auto.infrastructure.crawlers.researchr import (
@@ -129,6 +129,253 @@ class PostgresJobRepository:
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 return cur.fetchone()
+
+    def claim_next_job(
+        self,
+        *,
+        queue_name: str,
+        job_types: tuple[str, ...],
+        worker_id: str,
+        max_running_jobs: int | None,
+        min_start_interval_seconds: int,
+    ) -> dict[str, Any] | None:
+        if not job_types:
+            return None
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into worker_queue_state (queue_name)
+                    values (%s)
+                    on conflict (queue_name) do nothing
+                    """,
+                    (queue_name,),
+                )
+                cur.execute(
+                    "select queue_name, last_started_at from worker_queue_state where queue_name = %s for update",
+                    (queue_name,),
+                )
+                state = cur.fetchone()
+
+                if max_running_jobs is not None:
+                    cur.execute(
+                        "select count(*) as count from jobs where status = 'running' and job_type = any(%s)",
+                        (list(job_types),),
+                    )
+                    if cur.fetchone()["count"] >= max_running_jobs:
+                        return None
+
+                if min_start_interval_seconds > 0:
+                    cur.execute(
+                        "select now() >= coalesce(%s, '-infinity'::timestamptz) + (%s * interval '1 second') as can_start",
+                        (
+                            state["last_started_at"] if state else None,
+                            min_start_interval_seconds,
+                        ),
+                    )
+                    if not cur.fetchone()["can_start"]:
+                        return None
+
+                cur.execute(
+                    """
+                    with candidate as (
+                        select id
+                        from jobs
+                        where status = 'pending'
+                          and available_at <= now()
+                          and job_type = any(%s)
+                        order by priority asc, created_at asc
+                        limit 1
+                        for update skip locked
+                    )
+                    update jobs j
+                    set status = 'running',
+                        locked_at = now(),
+                        worker_id = %s,
+                        attempt_count = attempt_count + 1
+                    from candidate
+                    where j.id = candidate.id
+                    returning j.*
+                    """,
+                    (list(job_types), worker_id),
+                )
+                job = cur.fetchone()
+                if job is not None:
+                    cur.execute(
+                        """
+                        insert into worker_queue_state (queue_name, last_started_at)
+                        values (%s, now())
+                        on conflict (queue_name) do update
+                        set last_started_at = excluded.last_started_at
+                        """,
+                        (queue_name,),
+                    )
+            conn.commit()
+        return job
+
+    def has_pending_jobs(self, *, job_types: tuple[str, ...]) -> bool:
+        if not job_types:
+            return False
+        row = self.fetch_one(
+            "select exists(select 1 from jobs where status = 'pending' and job_type = any(%s)) as has_pending",
+            (list(job_types),),
+        )
+        return bool(row["has_pending"])
+
+    def start_job_attempt(self, *, job_id: str, worker_id: str) -> str:
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into job_attempts (job_id, worker_id)
+                    values (%s, %s)
+                    returning id
+                    """,
+                    (job_id, worker_id),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return row["id"]
+
+    def mark_job_succeeded(self, *, job_id: str, attempt_id: str) -> None:
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update jobs set status = 'succeeded', locked_at = null, worker_id = null where id = %s",
+                    (job_id,),
+                )
+                cur.execute(
+                    "update job_attempts set finished_at = now(), success = true where id = %s",
+                    (attempt_id,),
+                )
+            conn.commit()
+
+    def mark_job_failed(
+        self,
+        *,
+        job_id: str,
+        attempt_id: str,
+        error_message: str,
+        retry_delay_seconds: int,
+        should_retry: bool,
+    ) -> None:
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                if should_retry:
+                    cur.execute(
+                        """
+                        update jobs
+                        set status = 'pending',
+                            available_at = now() + (%s * interval '1 second'),
+                            locked_at = null,
+                            worker_id = null,
+                            last_error = %s
+                        where id = %s
+                        """,
+                        (retry_delay_seconds, error_message, job_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        update jobs
+                        set status = 'failed',
+                            locked_at = null,
+                            worker_id = null,
+                            last_error = %s
+                        where id = %s
+                        """,
+                        (error_message, job_id),
+                    )
+                cur.execute(
+                    """
+                    update job_attempts
+                    set finished_at = now(), success = false, error_message = %s
+                    where id = %s
+                    """,
+                    (error_message, attempt_id),
+                )
+            conn.commit()
+
+    def list_papers_needing_resolution(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        query = """
+            select p.id, p.detail_url
+            from papers p
+            where p.best_pdf_url is null
+              and not exists (select 1 from paper_parses pp where pp.paper_id = p.id)
+              and not exists (select 1 from paper_summaries ps where ps.paper_id = p.id)
+              and not exists (
+                  select 1 from jobs j
+                  where j.dedupe_key = 'resolve_paper_artifacts:' || p.id::text
+                    and j.status in ('pending', 'running')
+              )
+            order by p.canonical_title asc
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " limit %s"
+            params = (limit,) 
+        return self.fetch_all(query, params)
+
+    def count_resolved_without_pdf(self) -> int:
+        return self.fetch_one(
+            """
+            select count(*) as count
+            from papers
+            where resolution_status = 'resolved' and best_pdf_url is null
+            """,
+            (),
+        )["count"]
+
+    def repair_resolved_without_pdf(self) -> int:
+        before = self.count_resolved_without_pdf()
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update papers
+                    set resolution_status = 'unresolved'
+                    where resolution_status = 'resolved' and best_pdf_url is null
+                    """
+                )
+            conn.commit()
+        after = self.count_resolved_without_pdf()
+        return before - after
+
+    def list_downloaded_pdf_artifacts(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        query = """
+            select id, paper_id, storage_uri
+            from artifacts
+            where download_status = 'downloaded'
+              and storage_uri is not null
+              and (mime_type = 'application/pdf' or lower(storage_uri) like '%%.pdf')
+            order by downloaded_at asc nulls last
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " limit %s"
+            params = (limit,)
+        return self.fetch_all(query, params)
+
+    def list_paper_parses(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        query = "select id, paper_id from paper_parses order by created_at asc"
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " limit %s"
+            params = (limit,)
+        return self.fetch_all(query, params)
+
+    def list_fallback_summaries(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        query = """
+            select distinct on (paper_parse_id) paper_parse_id as id, paper_id
+            from paper_summaries
+            where provider like '%%fallback'
+            order by paper_parse_id, created_at desc
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " limit %s"
+            params = (limit,)
+        return self.fetch_all(query, params)
 
 
 class PostgresReadRepository:
@@ -276,6 +523,11 @@ class PostgresReadRepository:
             limit %s
             """,
             (q, q, like_q, like_q, like_q, limit),
+        )
+
+    def list_summary_providers(self) -> list[dict[str, Any]]:
+        return self.jobs.fetch_all(
+            "select distinct provider from paper_summaries where provider is not null order by provider asc"
         )
 
     def get_stats(self) -> dict[str, Any]:
@@ -519,14 +771,15 @@ class PostgresPipelineRepository:
             conn.commit()
 
     def mark_artifact_downloaded(
-        self, *, paper_id: str, url: str, result: DownloadResult
+        self, *, paper_id: str, url: str, result: StorageWriteResult
     ) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "update artifacts set download_status = 'downloaded', local_path = %s, checksum_sha256 = %s, byte_size = %s, mime_type = coalesce(%s, mime_type), downloaded_at = now() where paper_id = %s and resolved_url = %s",
+                    "update artifacts set download_status = 'downloaded', storage_uri = %s, storage_key = %s, checksum_sha256 = %s, byte_size = %s, mime_type = coalesce(%s, mime_type), downloaded_at = now() where paper_id = %s and resolved_url = %s",
                     (
-                        result.local_path,
+                        result.storage_uri,
+                        result.storage_key,
                         result.checksum_sha256,
                         result.byte_size,
                         result.mime_type,
@@ -535,7 +788,7 @@ class PostgresPipelineRepository:
                     ),
                 )
                 cur.execute(
-                    "select id, mime_type, local_path from artifacts where paper_id = %s and resolved_url = %s",
+                    "select id, mime_type, storage_uri from artifacts where paper_id = %s and resolved_url = %s",
                     (paper_id, url),
                 )
                 artifact = cur.fetchone()

@@ -69,26 +69,8 @@ def seed_icse() -> None:
 def enqueue_resolve(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    queries = PostgresJobRepository(db)
-    jobs = queries
-    query = """
-        select p.id, p.detail_url
-        from papers p
-        where p.best_pdf_url is null
-          and not exists (select 1 from paper_parses pp where pp.paper_id = p.id)
-          and not exists (select 1 from paper_summaries ps where ps.paper_id = p.id)
-          and not exists (
-              select 1 from jobs j
-              where j.dedupe_key = 'resolve_paper_artifacts:' || p.id::text
-                and j.status in ('pending', 'running')
-          )
-        order by p.canonical_title asc
-    """
-    params: tuple[object, ...] = ()
-    if limit is not None:
-        query += " limit %s"
-        params = (limit,)
-    rows = queries.fetch_all(query, params)
+    jobs = PostgresJobRepository(db)
+    rows = jobs.list_papers_needing_resolution(limit=limit)
     inserted = 0
     for row in rows:
         did_insert = jobs.enqueue_job(
@@ -105,61 +87,22 @@ def enqueue_resolve(limit: int | None) -> None:
 def repair_resolution_status() -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    queries = PostgresJobRepository(db)
-    before = queries.fetch_one(
-        """
-        select count(*) as count
-        from papers
-        where resolution_status = 'resolved' and best_pdf_url is null
-        """,
-        (),
-    )["count"]
-    with db.connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                update papers
-                set resolution_status = 'unresolved'
-                where resolution_status = 'resolved' and best_pdf_url is null
-                """
-            )
-        conn.commit()
-    after = queries.fetch_one(
-        """
-        select count(*) as count
-        from papers
-        where resolution_status = 'resolved' and best_pdf_url is null
-        """,
-        (),
-    )["count"]
-    print(f"repaired {before - after} papers")
+    repaired = PostgresJobRepository(db).repair_resolved_without_pdf()
+    print(f"repaired {repaired} papers")
 
 
 def enqueue_parse(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    queries = PostgresJobRepository(db)
-    jobs = queries
-    query = """
-        select id, paper_id, local_path
-        from artifacts
-        where download_status = 'downloaded'
-          and local_path is not null
-          and (mime_type = 'application/pdf' or lower(local_path) like '%%.pdf')
-        order by downloaded_at asc nulls last
-    """
-    params: tuple[object, ...] = ()
-    if limit is not None:
-        query += " limit %s"
-        params = (limit,)
-    rows = queries.fetch_all(query, params)
+    jobs = PostgresJobRepository(db)
+    rows = jobs.list_downloaded_pdf_artifacts(limit=limit)
     for row in rows:
         jobs.enqueue_job(
             job_type="parse_artifact",
             payload={
                 "paper_id": row["paper_id"],
                 "artifact_id": row["id"],
-                "local_path": row["local_path"],
+                "storage_uri": row["storage_uri"],
             },
             dedupe_key=f"parse_artifact:{row['id']}",
             priority=40,
@@ -170,14 +113,8 @@ def enqueue_parse(limit: int | None) -> None:
 def enqueue_summarize(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    queries = PostgresJobRepository(db)
-    jobs = queries
-    query = "select id, paper_id from paper_parses order by created_at asc"
-    params: tuple[object, ...] = ()
-    if limit is not None:
-        query += " limit %s"
-        params = (limit,)
-    rows = queries.fetch_all(query, params)
+    jobs = PostgresJobRepository(db)
+    rows = jobs.list_paper_parses(limit=limit)
     for row in rows:
         jobs.enqueue_job(
             job_type="summarize_paper",
@@ -191,19 +128,8 @@ def enqueue_summarize(limit: int | None) -> None:
 def enqueue_resummarize_fallbacks(limit: int | None) -> None:
     settings = get_settings()
     db = Database(settings.database_url)
-    queries = PostgresJobRepository(db)
-    jobs = queries
-    query = """
-        select distinct on (paper_parse_id) paper_parse_id as id, paper_id
-        from paper_summaries
-        where provider like '%%fallback'
-        order by paper_parse_id, created_at desc
-    """
-    params: tuple[object, ...] = ()
-    if limit is not None:
-        query += " limit %s"
-        params = (limit,)
-    rows = queries.fetch_all(query, params)
+    jobs = PostgresJobRepository(db)
+    rows = jobs.list_fallback_summaries(limit=limit)
     for row in rows:
         jobs.enqueue_job(
             job_type="summarize_paper",
@@ -288,47 +214,62 @@ def run_api(host: str, port: int) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="research-auto")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="group", required=True)
 
-    subparsers.add_parser("bootstrap-db")
-    subparsers.add_parser("seed-icse")
-    drain_parser = subparsers.add_parser("drain")
-    drain_parser.add_argument("--queue")
-    subparsers.add_parser("repair-resolution-status")
+    setup_parser = subparsers.add_parser("setup")
+    setup_subparsers = setup_parser.add_subparsers(dest="command", required=True)
+    setup_subparsers.add_parser("bootstrap-db")
+    setup_subparsers.add_parser("seed-icse")
 
-    resolve_parser = subparsers.add_parser("enqueue-resolve")
+    pipeline_parser = subparsers.add_parser("pipeline")
+    pipeline_subparsers = pipeline_parser.add_subparsers(dest="command", required=True)
+
+    resolve_parser = pipeline_subparsers.add_parser("resolve")
     resolve_parser.add_argument("--limit", type=int)
 
-    parse_parser = subparsers.add_parser("enqueue-parse")
+    parse_parser = pipeline_subparsers.add_parser("parse")
     parse_parser.add_argument("--limit", type=int)
 
-    summarize_parser = subparsers.add_parser("enqueue-summarize")
+    summarize_parser = pipeline_subparsers.add_parser("summarize")
     summarize_parser.add_argument("--limit", type=int)
 
-    resummarize_parser = subparsers.add_parser("enqueue-resummarize-fallbacks")
+    resummarize_parser = pipeline_subparsers.add_parser("resummarize-fallbacks")
     resummarize_parser.add_argument("--limit", type=int)
 
-    search_parser = subparsers.add_parser("search")
+    pipeline_subparsers.add_parser("repair-resolution-status")
+
+    drain_parser = pipeline_subparsers.add_parser("drain")
+    drain_parser.add_argument("--queue")
+
+    inspect_parser = subparsers.add_parser("inspect")
+    inspect_subparsers = inspect_parser.add_subparsers(dest="command", required=True)
+
+    search_parser = inspect_subparsers.add_parser("search")
     search_parser.add_argument("query")
     search_parser.add_argument("--limit", type=int, default=10)
 
-    show_parser = subparsers.add_parser("show-paper")
-    show_parser.add_argument("paper_id")
+    inspect_subparsers.add_parser("paper").add_argument("paper_id")
 
-    ask_paper_parser = subparsers.add_parser("ask-paper")
+    ask_parser = inspect_subparsers.add_parser("ask")
+    ask_subparsers = ask_parser.add_subparsers(dest="target", required=True)
+
+    ask_paper_parser = ask_subparsers.add_parser("paper")
     ask_paper_parser.add_argument("paper_id")
     ask_paper_parser.add_argument("question")
     ask_paper_parser.add_argument("--limit", type=int, default=8)
 
-    ask_library_parser = subparsers.add_parser("ask-library")
+    ask_library_parser = ask_subparsers.add_parser("library")
     ask_library_parser.add_argument("question")
     ask_library_parser.add_argument("--limit", type=int, default=8)
 
-    worker_parser = subparsers.add_parser("worker")
+    serve_parser = subparsers.add_parser("serve")
+    serve_subparsers = serve_parser.add_subparsers(dest="command", required=True)
+
+    worker_parser = serve_subparsers.add_parser("worker")
     worker_parser.add_argument("--once", action="store_true")
     worker_parser.add_argument("--queue")
 
-    api_parser = subparsers.add_parser("api")
+    api_parser = serve_subparsers.add_parser("api")
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8000)
 
@@ -337,31 +278,37 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.command == "bootstrap-db":
-        bootstrap_db()
-    elif args.command == "seed-icse":
-        seed_icse()
-    elif args.command == "drain":
-        drain_worker(args.queue)
-    elif args.command == "repair-resolution-status":
-        repair_resolution_status()
-    elif args.command == "enqueue-resolve":
-        enqueue_resolve(args.limit)
-    elif args.command == "enqueue-parse":
-        enqueue_parse(args.limit)
-    elif args.command == "enqueue-summarize":
-        enqueue_summarize(args.limit)
-    elif args.command == "enqueue-resummarize-fallbacks":
-        enqueue_resummarize_fallbacks(args.limit)
-    elif args.command == "search":
-        search_papers_cli(args.query, args.limit)
-    elif args.command == "show-paper":
-        show_paper_cli(args.paper_id)
-    elif args.command == "ask-paper":
-        ask_paper_cli(args.paper_id, args.question, args.limit)
-    elif args.command == "ask-library":
-        ask_library_cli(args.question, args.limit)
-    elif args.command == "worker":
-        run_worker(args.once, args.queue)
-    elif args.command == "api":
-        run_api(args.host, args.port)
+    match args.group:
+        case "setup":
+            if args.command == "bootstrap-db":
+                bootstrap_db()
+            elif args.command == "seed-icse":
+                seed_icse()
+        case "pipeline":
+            if args.command == "resolve":
+                enqueue_resolve(args.limit)
+            elif args.command == "parse":
+                enqueue_parse(args.limit)
+            elif args.command == "summarize":
+                enqueue_summarize(args.limit)
+            elif args.command == "resummarize-fallbacks":
+                enqueue_resummarize_fallbacks(args.limit)
+            elif args.command == "repair-resolution-status":
+                repair_resolution_status()
+            elif args.command == "drain":
+                drain_worker(args.queue)
+        case "inspect":
+            if args.command == "search":
+                search_papers_cli(args.query, args.limit)
+            elif args.command == "paper":
+                show_paper_cli(args.paper_id)
+            elif args.command == "ask":
+                if args.target == "paper":
+                    ask_paper_cli(args.paper_id, args.question, args.limit)
+                elif args.target == "library":
+                    ask_library_cli(args.question, args.limit)
+        case "serve":
+            if args.command == "worker":
+                run_worker(args.once, args.queue)
+            elif args.command == "api":
+                run_api(args.host, args.port)

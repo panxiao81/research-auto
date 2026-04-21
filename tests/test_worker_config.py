@@ -58,3 +58,10 @@ def test_get_queue_policy_rejects_unknown_queue() -> None:
         assert "unsupported worker queue" in str(exc)
     else:
         raise AssertionError("expected ValueError for unknown queue")
+
+
+def test_storage_backend_defaults_and_overrides() -> None:
+    settings = _settings(STORAGE_BACKEND="s3", S3_BUCKET="papers")
+
+    assert settings.storage_backend == "s3"
+    assert settings.s3_prefix == "papers"

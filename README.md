@@ -34,21 +34,22 @@ Laptop-friendly prototype for a conference paper ingestion pipeline with:
 5. Bootstrap the schema and seed ICSE 2026:
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto bootstrap-db
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto seed-icse
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup bootstrap-db
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup seed icse
 ```
 
 6. Trigger the pipeline from the CLI:
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run python scripts/trigger_pipeline.py --seed-icse --drain
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup seed icse
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto pipeline drain
 ```
 
 7. Run the worker or API:
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto worker --once
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto api --host 127.0.0.1 --port 8000
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto serve worker --once
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto serve api --host 127.0.0.1 --port 8000
 ```
 
 ## Docker
@@ -71,41 +72,42 @@ Useful commands:
 ```bash
 docker compose up --build api postgres
 docker compose run --rm bootstrap
-docker compose run --rm worker uv run research-auto drain
+docker compose run --rm worker uv run research-auto pipeline drain
 ```
 
 ## Commands
 
-- `bootstrap-db`: creates the initial schema
-- `seed-icse`: inserts ICSE 2026 and its Research Track, then enqueues a crawl job
-- `drain`: runs jobs until the queue is empty
-- `drain --queue llm|parse|download|resolve|crawl|all`: drains only one worker queue
-- `enqueue-resolve`: enqueue detail-page artifact resolution jobs
-- `enqueue-parse`: enqueue PDF-to-text parse jobs for downloaded artifacts
-- `enqueue-summarize`: enqueue LLM summary jobs for parsed papers
-- `worker --queue llm|parse|download|resolve|crawl|all`: claims and executes jobs from one PostgreSQL worker queue
-- `api`: runs the FastAPI service
+- `setup bootstrap-db`: creates the initial schema
+- `setup seed icse`: inserts ICSE 2026 and its Research Track, then enqueues a crawl job
+- `pipeline drain`: runs jobs until the queue is empty
+- `pipeline drain --queue llm|parse|download|resolve|crawl|all`: drains only one worker queue
+- `pipeline resolve`: enqueue detail-page artifact resolution jobs
+- `pipeline parse`: enqueue PDF-to-text parse jobs for downloaded artifacts
+- `pipeline summarize`: enqueue LLM summary jobs for parsed papers
+- `serve worker --queue llm|parse|download|resolve|crawl|all`: claims and executes jobs from one PostgreSQL worker queue
+- `serve api`: runs the FastAPI service
 
-## Trigger Script
+## Triggering the Pipeline
 
-Use the script when you want a direct CLI trigger rather than calling API endpoints.
+Use the grouped CLI when you want a direct trigger rather than calling API endpoints.
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run python scripts/trigger_pipeline.py --bootstrap-db --seed-icse --drain
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup bootstrap-db
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup seed icse
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto pipeline drain
 ```
 
 Options:
 
-- `--bootstrap-db`
-- `--seed-icse`
-- `--enqueue-resolve`
-- `--resolve-limit N`
-- `--enqueue-parse`
-- `--parse-limit N`
-- `--enqueue-summarize`
-- `--summarize-limit N`
-- `--drain`
-- `--worker-once`
+- `setup bootstrap-db`
+- `setup seed icse`
+- `pipeline resolve [--limit N]`
+- `pipeline parse [--limit N]`
+- `pipeline summarize [--limit N]`
+- `pipeline resummarize-fallbacks [--limit N]`
+- `pipeline repair-resolution-status`
+- `pipeline drain [--queue NAME]`
+- `serve worker [--once]`
 
 ## Current prototype scope
 

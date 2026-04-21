@@ -21,3 +21,6 @@ data/
 
 # Local notes
 session-ses_*.md
+
+# Local git worktrees
+.worktrees/

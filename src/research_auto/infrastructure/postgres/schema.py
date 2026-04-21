@@ -143,6 +143,8 @@ create table if not exists artifacts (
     downloadable boolean not null default false,
     download_status text not null default 'pending',
     local_path text,
+    storage_uri text,
+    storage_key text,
     checksum_sha256 text,
     byte_size bigint,
     downloaded_at timestamptz,
@@ -154,6 +156,8 @@ create table if not exists artifacts (
 create index if not exists artifacts_paper_idx on artifacts (paper_id);
 
 alter table artifacts add column if not exists resolution_reason text;
+alter table artifacts add column if not exists storage_uri text;
+alter table artifacts add column if not exists storage_key text;
 
 create table if not exists paper_parses (
     id uuid primary key default gen_random_uuid(),
