@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from dotenv import load_dotenv
 import uvicorn
 
 from research_auto.infrastructure.postgres.database import Database
@@ -277,6 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    load_dotenv()
     args = build_parser().parse_args()
     match args.group:
         case "setup":

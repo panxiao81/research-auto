@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from research_auto.interfaces.cli.app import build_parser
+from research_auto.interfaces.cli import app
 
 
 def test_grouped_cli_parser_exposes_new_commands() -> None:
@@ -35,3 +38,20 @@ def test_grouped_cli_dispatch_names() -> None:
     assert ask_args.target == "paper"
     assert ask_args.paper_id == "paper-1"
     assert ask_args.question == "Why now?"
+
+
+def test_main_loads_dotenv_before_dispatch(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class DummyParser:
+        def parse_args(self):
+            calls.append("parse_args")
+            return SimpleNamespace(group="setup", command="bootstrap-db")
+
+    monkeypatch.setattr(app, "build_parser", lambda: DummyParser())
+    monkeypatch.setattr(app, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr(app, "bootstrap_db", lambda: calls.append("bootstrap_db"))
+
+    app.main()
+
+    assert calls == ["load_dotenv", "parse_args", "bootstrap_db"]
