@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from fastapi.testclient import TestClient
+import pytest
 from pypdf import PdfWriter
 
 from research_auto.interfaces.api.app import create_app
@@ -280,6 +281,105 @@ def test_ui_stats_and_jobs_render() -> None:
     assert jobs.status_code == 200
     assert "Summary Providers" in stats.text
     assert "Jobs" in jobs.text
+
+
+def test_ui_admin_page_renders() -> None:
+    client = _client()
+
+    response = client.get("/ui/admin")
+
+    assert response.status_code == 200
+    assert "Admin" in response.text
+    assert "Bootstrap Database" in response.text
+    assert "Enqueue Resolve" in response.text
+    assert "/ui/admin" in response.text
+
+
+@pytest.mark.parametrize(
+    ("form", "expected_message", "patch_name", "patch_return"),
+    [
+        (
+            {"action": "bootstrap-db"},
+            "Database bootstrapped.",
+            "bootstrap_db_action",
+            None,
+        ),
+        (
+            {"action": "seed-icse"},
+            "Seeded icse-2026 / research-track.",
+            "seed_icse_action",
+            {"conference_slug": "icse-2026", "track_slug": "research-track"},
+        ),
+        (
+            {"action": "resolve", "limit": "3"},
+            "Enqueued 7 resolve jobs.",
+            "enqueue_resolve_action",
+            7,
+        ),
+        (
+            {"action": "parse", "limit": "4"},
+            "Enqueued 8 parse jobs.",
+            "enqueue_parse_action",
+            8,
+        ),
+        (
+            {"action": "summarize", "limit": "5"},
+            "Enqueued 9 summarize jobs.",
+            "enqueue_summarize_action",
+            9,
+        ),
+        (
+            {"action": "resummarize-fallbacks", "limit": "6"},
+            "Enqueued 10 fallback re-summarize jobs.",
+            "enqueue_resummarize_fallbacks_action",
+            10,
+        ),
+        (
+            {"action": "repair-resolution-status"},
+            "Repaired 11 papers.",
+            "repair_resolution_status_action",
+            11,
+        ),
+        (
+            {"action": "drain", "queue": "llm"},
+            "Processed 12 jobs.",
+            "drain_worker_action",
+            12,
+        ),
+    ],
+)
+def test_ui_admin_actions_dispatch(monkeypatch, form, expected_message, patch_name, patch_return) -> None:
+    client = _client()
+    calls: list[object] = []
+
+    def _record(settings, value=None):
+        calls.append((settings.database_url, value))
+        return patch_return
+
+    if patch_name == "bootstrap_db_action":
+        monkeypatch.setattr(web_routes, patch_name, lambda settings: calls.append(settings.database_url))
+    elif patch_name == "seed_icse_action":
+        monkeypatch.setattr(web_routes, patch_name, lambda settings: patch_return)
+    elif patch_name == "drain_worker_action":
+        monkeypatch.setattr(web_routes, patch_name, _record)
+    else:
+        monkeypatch.setattr(web_routes, patch_name, lambda settings, limit: calls.append((settings.database_url, limit)) or patch_return)
+
+    response = client.post("/ui/admin", data=form)
+
+    assert response.status_code == 200
+    assert expected_message in response.text
+    assert calls or patch_name == "seed_icse_action"
+
+
+def test_ui_admin_action_errors_render(monkeypatch) -> None:
+    client = _client()
+    monkeypatch.setattr(web_routes, "bootstrap_db_action", lambda settings: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    response = client.post("/ui/admin", data={"action": "bootstrap-db"})
+
+    assert response.status_code == 400
+    assert "boom" in response.text
 
 
 def test_ui_manual_pdf_upload_redirects_to_paper_detail(monkeypatch) -> None:

@@ -6,6 +6,16 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from research_auto.application.admin_actions import (
+    bootstrap_db as bootstrap_db_action,
+    drain_worker as drain_worker_action,
+    enqueue_parse as enqueue_parse_action,
+    enqueue_resolve as enqueue_resolve_action,
+    enqueue_resummarize_fallbacks as enqueue_resummarize_fallbacks_action,
+    enqueue_summarize as enqueue_summarize_action,
+    repair_resolution_status as repair_resolution_status_action,
+    seed_icse as seed_icse_action,
+)
 from research_auto.infrastructure.postgres.database import Database
 from research_auto.infrastructure.postgres.repositories import PostgresReadRepository
 from research_auto.interfaces.worker.runner import build_storage
@@ -27,6 +37,7 @@ templates = Jinja2Templates(directory=str(REPO_ROOT / "templates"))
 
 router = APIRouter(include_in_schema=False)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+ADMIN_DEFAULT_LIMIT = 50
 
 
 def _to_bool(value: str | None) -> bool | None:
@@ -52,6 +63,32 @@ def _artifact_storage(request: Request):
         storage = build_storage(request.app.state.settings)
         request.app.state.storage = storage
     return storage
+
+
+def _admin_context(
+    request: Request,
+    *,
+    result: dict[str, object] | None = None,
+    error: str | None = None,
+) -> dict[str, object]:
+    return {
+        "result": result,
+        "error": error,
+        "defaults": {
+            "resolve_limit": ADMIN_DEFAULT_LIMIT,
+            "parse_limit": ADMIN_DEFAULT_LIMIT,
+            "summarize_limit": ADMIN_DEFAULT_LIMIT,
+            "fallback_limit": ADMIN_DEFAULT_LIMIT,
+            "drain_queue": request.app.state.settings.worker_queue,
+        },
+    }
+
+
+def _parse_limit(value: object, *, default: int | None = None) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    return int(text)
 
 
 def _paper_detail_or_404(request: Request, paper_id: str) -> dict[str, object]:
@@ -95,6 +132,73 @@ def ui_home(request: Request) -> HTMLResponse:
         request,
         "pages/home.html",
         {"stats": stats, "recent_papers": recent.items},
+    )
+
+
+@router.get("/ui/admin", response_class=HTMLResponse)
+def ui_admin(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "pages/admin.html",
+        _admin_context(request),
+    )
+
+
+@router.post("/ui/admin", response_class=HTMLResponse)
+async def ui_admin_action(request: Request) -> HTMLResponse:
+    form = await request.form()
+    action = str(form.get("action") or "").strip()
+    settings = request.app.state.settings
+    result: dict[str, object] | None = None
+    error: str | None = None
+
+    try:
+        if action == "bootstrap-db":
+            bootstrap_db_action(settings)
+            result = {"kind": "success", "message": "Database bootstrapped."}
+        elif action == "seed-icse":
+            seeded = seed_icse_action(settings)
+            result = {
+                "kind": "success",
+                "message": f"Seeded {seeded['conference_slug']} / {seeded['track_slug']}.",
+            }
+        elif action == "resolve":
+            limit = _parse_limit(form.get("limit"), default=None)
+            count = enqueue_resolve_action(settings, limit)
+            result = {"kind": "success", "message": f"Enqueued {count} resolve jobs."}
+        elif action == "parse":
+            limit = _parse_limit(form.get("limit"), default=None)
+            count = enqueue_parse_action(settings, limit)
+            result = {"kind": "success", "message": f"Enqueued {count} parse jobs."}
+        elif action == "summarize":
+            limit = _parse_limit(form.get("limit"), default=None)
+            count = enqueue_summarize_action(settings, limit)
+            result = {"kind": "success", "message": f"Enqueued {count} summarize jobs."}
+        elif action == "resummarize-fallbacks":
+            limit = _parse_limit(form.get("limit"), default=None)
+            count = enqueue_resummarize_fallbacks_action(settings, limit)
+            result = {
+                "kind": "success",
+                "message": f"Enqueued {count} fallback re-summarize jobs.",
+            }
+        elif action == "repair-resolution-status":
+            repaired = repair_resolution_status_action(settings)
+            result = {"kind": "success", "message": f"Repaired {repaired} papers."}
+        elif action == "drain":
+            queue = str(form.get("queue") or "").strip() or None
+            processed = drain_worker_action(settings, queue)
+            result = {"kind": "success", "message": f"Processed {processed} jobs."}
+        else:
+            raise ValueError("Unknown admin action.")
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+
+    status_code = 200 if error is None else 400
+    return templates.TemplateResponse(
+        request,
+        "pages/admin.html",
+        _admin_context(request, result=result, error=error),
+        status_code=status_code,
     )
 
 

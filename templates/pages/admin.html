@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Admin | research-auto{% endblock %}
+{% block content %}
+<section class="mb-4">
+  <h1 class="h2 mb-2">Admin</h1>
+  <p class="text-body-secondary mb-0">Setup and pipeline controls for the local research-auto stack.</p>
+</section>
+
+{% if result %}
+<div class="alert alert-success" role="alert">{{ result.message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger" role="alert">{{ error }}</div>
+{% endif %}
+
+<div class="row g-4">
+  <section class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h2 class="h5">Setup</h2>
+        <p class="text-body-secondary small">Initialize the database and seed the default ICSE conference track.</p>
+        <div class="d-grid gap-3">
+          <form method="post" action="/ui/admin" onsubmit="return confirm('Bootstrap the database? This will create or update the schema.');">
+            <input type="hidden" name="action" value="bootstrap-db">
+            <button class="btn btn-danger w-100" type="submit">Bootstrap Database</button>
+          </form>
+          <form method="post" action="/ui/admin" onsubmit="return confirm('Seed ICSE 2026 and enqueue the crawl job?');">
+            <input type="hidden" name="action" value="seed-icse">
+            <button class="btn btn-primary w-100" type="submit">Seed ICSE 2026</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="col-lg-8">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h5">Pipeline</h2>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="resolve">
+              <div>
+                <label class="form-label small mb-1" for="resolve-limit">Resolve limit</label>
+                <input class="form-control form-control-sm" id="resolve-limit" name="limit" type="number" min="1" value="{{ defaults.resolve_limit }}">
+              </div>
+              <button class="btn btn-outline-primary btn-sm" type="submit">Enqueue Resolve</button>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="parse">
+              <div>
+                <label class="form-label small mb-1" for="parse-limit">Parse limit</label>
+                <input class="form-control form-control-sm" id="parse-limit" name="limit" type="number" min="1" value="{{ defaults.parse_limit }}">
+              </div>
+              <button class="btn btn-outline-primary btn-sm" type="submit">Enqueue Parse</button>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="summarize">
+              <div>
+                <label class="form-label small mb-1" for="summarize-limit">Summarize limit</label>
+                <input class="form-control form-control-sm" id="summarize-limit" name="limit" type="number" min="1" value="{{ defaults.summarize_limit }}">
+              </div>
+              <button class="btn btn-outline-primary btn-sm" type="submit">Enqueue Summarize</button>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="resummarize-fallbacks">
+              <div>
+                <label class="form-label small mb-1" for="fallback-limit">Fallback limit</label>
+                <input class="form-control form-control-sm" id="fallback-limit" name="limit" type="number" min="1" value="{{ defaults.fallback_limit }}">
+              </div>
+              <button class="btn btn-outline-primary btn-sm" type="submit">Re-summarize Fallbacks</button>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="repair-resolution-status">
+              <p class="small text-body-secondary mb-0">Fix papers marked resolved without a usable PDF.</p>
+              <button class="btn btn-outline-secondary btn-sm" type="submit">Repair Resolution Status</button>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
+              <input type="hidden" name="action" value="drain">
+              <div>
+                <label class="form-label small mb-1" for="drain-queue">Queue</label>
+                <input class="form-control form-control-sm" id="drain-queue" name="queue" value="{{ defaults.drain_queue }}" placeholder="all">
+              </div>
+              <button class="btn btn-outline-secondary btn-sm" type="submit">Drain Queue</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

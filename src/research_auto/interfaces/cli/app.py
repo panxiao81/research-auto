@@ -7,10 +7,16 @@ from dotenv import load_dotenv
 import uvicorn
 
 from research_auto.infrastructure.postgres.database import Database
-from research_auto.infrastructure.postgres.repositories import (
-    PostgresCatalogRepository,
-    PostgresJobRepository,
-    PostgresReadRepository,
+from research_auto.infrastructure.postgres.repositories import PostgresReadRepository
+from research_auto.application.admin_actions import (
+    bootstrap_db as bootstrap_db_action,
+    drain_worker as drain_worker_action,
+    enqueue_parse as enqueue_parse_action,
+    enqueue_resolve as enqueue_resolve_action,
+    enqueue_resummarize_fallbacks as enqueue_resummarize_fallbacks_action,
+    enqueue_summarize as enqueue_summarize_action,
+    repair_resolution_status as repair_resolution_status_action,
+    seed_icse as seed_icse_action,
 )
 from research_auto.application.query_services import (
     QuestionAnswerService,
@@ -18,129 +24,50 @@ from research_auto.application.query_services import (
 )
 from research_auto.interfaces.api.app import create_app
 from research_auto.config import get_settings
-from research_auto.application.queue_policies import get_queue_policy
 from research_auto.interfaces.worker.runner import JobWorker
-from research_auto.application.llm import PROMPT_VERSION
 from research_auto.infrastructure.llm.provider import build_provider
-
-
-ICSE_2026_TRACK_URL = "https://conf.researchr.org/track/icse-2026/icse-2026-research-track?#event-overview"
-ICSE_2026_HOME_URL = "https://conf.researchr.org/home/icse-2026"
 
 
 def bootstrap_db() -> None:
     settings = get_settings()
-    Database(settings.database_url).bootstrap()
+    bootstrap_db_action(settings)
     print("database bootstrapped")
 
 
 def seed_icse() -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    catalog = PostgresCatalogRepository(db)
-    jobs = PostgresJobRepository(db)
-    conference = catalog.upsert_conference(
-        slug="icse-2026",
-        name="ICSE 2026",
-        year=2026,
-        homepage_url=ICSE_2026_HOME_URL,
-        source_system="researchr",
-    )
-    track = catalog.upsert_track(
-        conference_id=conference["id"],
-        slug="research-track",
-        name="Research Track",
-        track_url=ICSE_2026_TRACK_URL,
-    )
-    jobs.enqueue_job(
-        job_type="crawl_track",
-        payload={
-            "conference_id": conference["id"],
-            "track_id": track["id"],
-            "track_url": track["track_url"],
-            "year": conference["year"],
-            "paper_type": "research",
-        },
-        dedupe_key=f"crawl_track:{track['id']}",
-        priority=10,
-    )
-    print(f"seeded {conference['slug']} / {track['slug']}")
+    result = seed_icse_action(settings)
+    print(f"seeded {result['conference_slug']} / {result['track_slug']}")
 
 
 def enqueue_resolve(limit: int | None) -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    jobs = PostgresJobRepository(db)
-    rows = jobs.list_papers_needing_resolution(limit=limit)
-    inserted = 0
-    for row in rows:
-        did_insert = jobs.enqueue_job(
-            job_type="resolve_paper_artifacts",
-            payload={"paper_id": row["id"], "detail_url": row["detail_url"]},
-            dedupe_key=f"resolve_paper_artifacts:{row['id']}",
-            priority=20,
-        )
-        if did_insert:
-            inserted += 1
+    inserted = enqueue_resolve_action(settings, limit)
     print(f"enqueued {inserted} resolve jobs")
 
 
 def repair_resolution_status() -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    repaired = PostgresJobRepository(db).repair_resolved_without_pdf()
+    repaired = repair_resolution_status_action(settings)
     print(f"repaired {repaired} papers")
 
 
 def enqueue_parse(limit: int | None) -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    jobs = PostgresJobRepository(db)
-    rows = jobs.list_downloaded_pdf_artifacts(limit=limit)
-    for row in rows:
-        jobs.enqueue_job(
-            job_type="parse_artifact",
-            payload={
-                "paper_id": row["paper_id"],
-                "artifact_id": row["id"],
-                "storage_uri": row["storage_uri"],
-                "checksum_sha256": row["checksum_sha256"],
-            },
-            dedupe_key=f"parse_artifact:{row['id']}:{row['checksum_sha256']}",
-            priority=40,
-        )
-    print(f"enqueued {len(rows)} parse jobs")
+    count = enqueue_parse_action(settings, limit)
+    print(f"enqueued {count} parse jobs")
 
 
 def enqueue_summarize(limit: int | None) -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    jobs = PostgresJobRepository(db)
-    rows = jobs.list_paper_parses(limit=limit)
-    for row in rows:
-        jobs.enqueue_job(
-            job_type="summarize_paper",
-            payload={"paper_id": row["paper_id"], "paper_parse_id": row["id"]},
-            dedupe_key=f"summarize_paper:{row['id']}:{settings.llm_provider}:{settings.llm_model}:{PROMPT_VERSION}",
-            priority=50,
-        )
-    print(f"enqueued {len(rows)} summarize jobs")
+    count = enqueue_summarize_action(settings, limit)
+    print(f"enqueued {count} summarize jobs")
 
 
 def enqueue_resummarize_fallbacks(limit: int | None) -> None:
     settings = get_settings()
-    db = Database(settings.database_url)
-    jobs = PostgresJobRepository(db)
-    rows = jobs.list_fallback_summaries(limit=limit)
-    for row in rows:
-        jobs.enqueue_job(
-            job_type="summarize_paper",
-            payload={"paper_id": row["paper_id"], "paper_parse_id": row["id"]},
-            dedupe_key=f"resummarize_paper:{row['id']}:{settings.llm_provider}:{settings.llm_model}:{PROMPT_VERSION}",
-            priority=45,
-            max_attempts=10,
-        )
-    print(f"enqueued {len(rows)} fallback re-summarize jobs")
+    count = enqueue_resummarize_fallbacks_action(settings, limit)
+    print(f"enqueued {count} fallback re-summarize jobs")
 
 
 def search_papers_cli(query: str, limit: int) -> None:
@@ -203,10 +130,7 @@ def run_worker(once: bool, queue: str | None) -> None:
 
 def drain_worker(queue: str | None) -> None:
     settings = get_settings()
-    if queue is not None:
-        get_queue_policy(queue)
-    worker = JobWorker(Database(settings.database_url), settings, queue_name=queue)
-    processed = worker.drain()
+    processed = drain_worker_action(settings, queue)
     print(f"processed {processed} jobs")
 
 
