@@ -22,11 +22,13 @@ COPY templates ./templates
 
 RUN useradd -m appuser \
     && chown -R appuser:appuser /app /home/appuser
-USER appuser
 
 ENV HOME=/home/appuser
 
-RUN uv run playwright install chromium
+RUN uv run playwright install --with-deps --only-shell chromium \
+    && chown -R appuser:appuser /home/appuser/.cache/ms-playwright
+
+USER appuser
 
 EXPOSE 8000
 
