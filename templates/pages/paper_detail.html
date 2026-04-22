@@ -19,6 +19,22 @@
       <dt>Landing</dt><dd>{% if paper.best_landing_url %}<a href="{{ paper.best_landing_url }}">Open</a>{% else %}-{% endif %}</dd>
       <dt>Detail</dt><dd>{% if paper.detail_url %}<a href="{{ paper.detail_url }}">Conference page</a>{% else %}-{% endif %}</dd>
     </dl>
+    {% if upload_error and not show_upload_retry %}
+    <div class="alert alert-danger small mt-4 mb-0" role="alert">{{ upload_error }}</div>
+    {% endif %}
+    {% if not paper.best_pdf_url or show_upload_retry %}
+    <div class="border rounded bg-body-tertiary p-3 mt-4">
+      <h3 class="h6 mb-2">Upload PDF</h3>
+      <p class="small text-body-secondary mb-3">Upload a PDF to continue parsing and summarization.</p>
+      {% if upload_error %}
+      <div class="alert alert-danger small mb-3" role="alert">{{ upload_error }}</div>
+      {% endif %}
+      <form method="post" action="/ui/papers/{{ paper.id }}/upload-pdf" enctype="multipart/form-data" class="d-grid gap-2">
+        <input class="form-control form-control-sm" type="file" name="pdf" accept="application/pdf,.pdf" required>
+        <button class="btn btn-primary btn-sm" type="submit">Upload PDF</button>
+      </form>
+    </div>
+    {% endif %}
     <h3 class="h6 mt-4">Authors</h3>
     <ul class="mb-0">{% for author in authors %}<li>{{ author.display_name }}</li>{% endfor %}</ul>
     {% if artifacts %}

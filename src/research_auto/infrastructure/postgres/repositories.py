@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from typing import Any
 
@@ -17,6 +18,13 @@ from research_auto.infrastructure.crawlers.researchr import (
 )
 from research_auto.infrastructure.postgres.database import Database
 from research_auto.application.llm_types import PaperSummary
+
+
+@dataclass(frozen=True, slots=True)
+class StoredArtifactRef:
+    id: str
+    storage_uri: str
+    mime_type: str | None
 
 
 class PostgresCatalogRepository:
@@ -129,6 +137,130 @@ class PostgresJobRepository:
             with conn.cursor() as cur:
                 cur.execute(query, params)
                 return cur.fetchone()
+
+    def save_manual_pdf(
+        self,
+        *,
+        paper_id: str,
+        file_name: str,
+        storage_uri: str,
+        storage_key: str,
+        mime_type: str | None,
+        checksum_sha256: str,
+        byte_size: int,
+    ) -> StoredArtifactRef:
+        manual_url = f"manual://{paper_id}/{file_name}"
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into artifacts (
+                        paper_id,
+                        artifact_kind,
+                        label,
+                        resolution_reason,
+                        source_url,
+                        resolved_url,
+                        mime_type,
+                        downloadable,
+                        download_status,
+                        storage_uri,
+                        storage_key,
+                        checksum_sha256,
+                        byte_size,
+                        downloaded_at
+                    )
+                    values (
+                        %s,
+                        'manual_pdf',
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        true,
+                        'downloaded',
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    now()
+                    )
+                    on conflict (paper_id, artifact_kind, source_url) do update
+                    set label = excluded.label,
+                        resolution_reason = excluded.resolution_reason,
+                        resolved_url = excluded.resolved_url,
+                        mime_type = excluded.mime_type,
+                        downloadable = excluded.downloadable,
+                        download_status = excluded.download_status,
+                        storage_uri = excluded.storage_uri,
+                        storage_key = excluded.storage_key,
+                        checksum_sha256 = excluded.checksum_sha256,
+                        byte_size = excluded.byte_size,
+                        downloaded_at = excluded.downloaded_at
+                    returning id, storage_uri, mime_type
+                    """,
+                    (
+                        paper_id,
+                        file_name,
+                        "manual_pdf_upload",
+                        manual_url,
+                        manual_url,
+                        mime_type,
+                        storage_uri,
+                        storage_key,
+                        checksum_sha256,
+                        byte_size,
+                    ),
+                )
+                artifact = cur.fetchone()
+                cur.execute(
+                    "delete from paper_summaries where paper_id = %s",
+                    (paper_id,),
+                )
+                cur.execute(
+                    "delete from paper_chunks where paper_id = %s",
+                    (paper_id,),
+                )
+                cur.execute(
+                    "delete from paper_parses where paper_id = %s",
+                    (paper_id,),
+                )
+                cur.execute(
+                    "update papers set best_pdf_url = %s, resolution_status = 'resolved' where id = %s",
+                    (f"/ui/papers/{paper_id}/artifacts/{artifact['id']}", paper_id),
+                )
+                cur.execute(
+                    "insert into jobs (job_type, payload, dedupe_key, priority, max_attempts) values (%s, %s::jsonb, %s, %s, %s) on conflict do nothing",
+                    (
+                        "parse_artifact",
+                        json.dumps(
+                            {
+                                "paper_id": paper_id,
+                                "artifact_id": str(artifact["id"]),
+                                "storage_uri": storage_uri,
+                                "checksum_sha256": checksum_sha256,
+                            }
+                        ),
+                        f"parse_artifact:{artifact['id']}:{checksum_sha256}",
+                        40,
+                        5,
+                    ),
+                )
+            conn.commit()
+        return StoredArtifactRef(**artifact)
+
+    def get_stored_artifact(
+        self, *, paper_id: str, artifact_id: str
+    ) -> StoredArtifactRef | None:
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select id, storage_uri, mime_type from artifacts where id = %s and paper_id = %s and storage_uri is not null",
+                    (artifact_id, paper_id),
+                )
+                artifact = cur.fetchone()
+        return StoredArtifactRef(**artifact) if artifact else None
 
     def claim_next_job(
         self,
@@ -343,7 +475,7 @@ class PostgresJobRepository:
 
     def list_downloaded_pdf_artifacts(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         query = """
-            select id, paper_id, storage_uri
+            select id, paper_id, storage_uri, checksum_sha256
             from artifacts
             where download_status = 'downloaded'
               and storage_uri is not null
@@ -735,7 +867,7 @@ class PostgresPipelineRepository:
         self, *, paper_id: str
     ) -> PaperResolutionContext | None:
         row = self.jobs.fetch_one(
-            "select p.canonical_title, p.doi, p.detail_url, p.best_pdf_url, exists(select 1 from paper_parses pp where pp.paper_id = p.id) as has_parse, exists(select 1 from paper_summaries ps where ps.paper_id = p.id) as has_summary from papers p where p.id = %s",
+            "select p.canonical_title, p.doi, p.detail_url, p.best_pdf_url, exists(select 1 from artifacts a where a.paper_id = p.id and a.artifact_kind = 'manual_pdf' and a.storage_uri is not null) as has_manual_pdf, exists(select 1 from paper_parses pp where pp.paper_id = p.id) as has_parse, exists(select 1 from paper_summaries ps where ps.paper_id = p.id) as has_summary from papers p where p.id = %s",
             (paper_id,),
         )
         return PaperResolutionContext(**row) if row else None
@@ -743,7 +875,19 @@ class PostgresPipelineRepository:
     def replace_resolution(self, *, paper_id: str, result: ResolutionResult) -> None:
         with self.db.connect() as conn:
             with conn.cursor() as cur:
-                cur.execute("delete from artifacts where paper_id = %s", (paper_id,))
+                cur.execute(
+                    "select best_pdf_url, exists(select 1 from artifacts where paper_id = %s and artifact_kind = 'manual_pdf' and storage_uri is not null) as has_manual_pdf from papers where id = %s",
+                    (paper_id, paper_id),
+                )
+                manual_state = cur.fetchone()
+                has_manual_pdf = bool(manual_state and manual_state["has_manual_pdf"])
+                if has_manual_pdf:
+                    cur.execute(
+                        "delete from artifacts where paper_id = %s and artifact_kind <> 'manual_pdf'",
+                        (paper_id,),
+                    )
+                else:
+                    cur.execute("delete from artifacts where paper_id = %s", (paper_id,))
                 for artifact in result.artifacts:
                     cur.execute(
                         "insert into artifacts (paper_id, artifact_kind, label, resolution_reason, source_url, resolved_url, mime_type, downloadable, download_status) values (%s, %s, %s, %s, %s, %s, %s, %s, 'pending')",
@@ -761,10 +905,10 @@ class PostgresPipelineRepository:
                 cur.execute(
                     "update papers set best_pdf_url = %s, best_landing_url = %s, doi = coalesce(%s, doi), resolution_status = %s where id = %s",
                     (
-                        result.best_pdf_url,
+                        manual_state["best_pdf_url"] if has_manual_pdf else result.best_pdf_url,
                         result.best_landing_url,
                         result.known_doi,
-                        "resolved" if result.best_pdf_url else "unresolved",
+                        "resolved" if has_manual_pdf or result.best_pdf_url else "unresolved",
                         paper_id,
                     ),
                 )
@@ -807,6 +951,22 @@ class PostgresPipelineRepository:
     ) -> None:
         with self.db.connect() as conn:
             with conn.cursor() as cur:
+                expected_checksum = payload.get("checksum_sha256")
+                if expected_checksum is not None:
+                    cur.execute(
+                        "select a.checksum_sha256, a.resolved_url, p.best_pdf_url from artifacts a join papers p on p.id = a.paper_id where a.id = %s",
+                        (payload["artifact_id"],),
+                    )
+                    artifact = cur.fetchone()
+                    expected_best_pdf_url = f"/ui/papers/{payload['paper_id']}/artifacts/{payload['artifact_id']}"
+                    if (
+                        artifact is None
+                        or artifact.get("checksum_sha256") != expected_checksum
+                        or artifact.get("best_pdf_url")
+                        not in {artifact.get("resolved_url"), expected_best_pdf_url}
+                    ):
+                        conn.commit()
+                        return
                 cur.execute(
                     "delete from paper_chunks where paper_parse_id in (select id from paper_parses where artifact_id = %s)",
                     (payload["artifact_id"],),

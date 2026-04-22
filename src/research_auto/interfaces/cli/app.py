@@ -104,8 +104,9 @@ def enqueue_parse(limit: int | None) -> None:
                 "paper_id": row["paper_id"],
                 "artifact_id": row["id"],
                 "storage_uri": row["storage_uri"],
+                "checksum_sha256": row["checksum_sha256"],
             },
-            dedupe_key=f"parse_artifact:{row['id']}",
+            dedupe_key=f"parse_artifact:{row['id']}:{row['checksum_sha256']}",
             priority=40,
         )
     print(f"enqueued {len(rows)} parse jobs")

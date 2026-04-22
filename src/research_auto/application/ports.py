@@ -14,6 +14,7 @@ class PaperResolutionContext:
     doi: str | None
     detail_url: str | None
     best_pdf_url: str | None
+    has_manual_pdf: bool
     has_parse: bool
     has_summary: bool
 

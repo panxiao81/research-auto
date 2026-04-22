@@ -55,3 +55,46 @@ def test_main_loads_dotenv_before_dispatch(monkeypatch) -> None:
     app.main()
 
     assert calls == ["load_dotenv", "parse_args", "bootstrap_db"]
+
+
+def test_enqueue_parse_uses_checksum_aware_payload_and_dedupe(monkeypatch) -> None:
+    enqueued: list[dict[str, object]] = []
+
+    class FakeJobs:
+        def list_downloaded_pdf_artifacts(self, *, limit: int | None = None):
+            assert limit == 2
+            return [
+                {
+                    "id": "artifact-1",
+                    "paper_id": "paper-1",
+                    "storage_uri": "local://paper-1/paper.pdf",
+                    "checksum_sha256": "abc123",
+                }
+            ]
+
+        def enqueue_job(self, **kwargs: object) -> None:
+            enqueued.append(kwargs)
+
+    monkeypatch.setattr(
+        app,
+        "get_settings",
+        lambda: SimpleNamespace(database_url="postgresql://example"),
+    )
+    monkeypatch.setattr(app, "Database", lambda url: object())
+    monkeypatch.setattr(app, "PostgresJobRepository", lambda db: FakeJobs())
+
+    app.enqueue_parse(2)
+
+    assert enqueued == [
+        {
+            "job_type": "parse_artifact",
+            "payload": {
+                "paper_id": "paper-1",
+                "artifact_id": "artifact-1",
+                "storage_uri": "local://paper-1/paper.pdf",
+                "checksum_sha256": "abc123",
+            },
+            "dedupe_key": "parse_artifact:artifact-1:abc123",
+            "priority": 40,
+        }
+    ]

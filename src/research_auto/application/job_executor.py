@@ -82,7 +82,7 @@ class JobExecutor:
             known_doi=paper.doi,
         )
         self.repository.replace_resolution(paper_id=payload["paper_id"], result=result)
-        if result.best_pdf_url:
+        if result.best_pdf_url and not paper.has_manual_pdf:
             self.queue.enqueue(
                 job_type="download_artifact",
                 payload={
@@ -120,8 +120,9 @@ class JobExecutor:
                     "paper_id": payload["paper_id"],
                     "artifact_id": str(artifact["id"]),
                     "storage_uri": stored.storage_uri,
+                    "checksum_sha256": stored.checksum_sha256,
                 },
-                dedupe_key=f"parse_artifact:{artifact['id']}",
+                dedupe_key=f"parse_artifact:{artifact['id']}:{stored.checksum_sha256}",
                 priority=40,
                 max_attempts=5,
             )

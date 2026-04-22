@@ -28,6 +28,7 @@ class FakeRepository:
             doi=None,
             detail_url="https://example.com/paper",
             best_pdf_url=None,
+            has_manual_pdf=False,
             has_parse=False,
             has_summary=False,
         )
@@ -186,6 +187,27 @@ def test_job_executor_enqueues_download_after_resolution() -> None:
     assert queue.enqueued[0]["job_type"] == "download_artifact"
 
 
+def test_job_executor_refreshes_resolution_but_skips_download_when_manual_pdf_exists() -> None:
+    repo = FakeRepository()
+    repo.resolution = PaperResolutionContext(
+        canonical_title="Paper",
+        doi=None,
+        detail_url="https://example.com/paper",
+        best_pdf_url="/ui/papers/paper-1/artifacts/artifact-1",
+        has_manual_pdf=True,
+        has_parse=False,
+        has_summary=False,
+    )
+    queue = FakeQueue()
+
+    _executor(repo, queue).execute(
+        {"job_type": "resolve_paper_artifacts", "payload": {"paper_id": "paper-1"}}
+    )
+
+    assert repo.saved_resolution is not None
+    assert queue.enqueued == []
+
+
 def test_job_executor_saves_summary_via_port() -> None:
     repo = FakeRepository()
     queue = FakeQueue()
@@ -273,6 +295,8 @@ def test_job_executor_downloads_writes_and_queues_parse() -> None:
     assert storage.writes == [("paper-1", "paper.pdf", b"%PDF-1.4")]
     assert queue.enqueued[0]["job_type"] == "parse_artifact"
     assert queue.enqueued[0]["payload"]["storage_uri"] == "local://paper-1/paper.pdf"
+    assert queue.enqueued[0]["payload"]["checksum_sha256"] == "abc"
+    assert queue.enqueued[0]["dedupe_key"] == "parse_artifact:artifact-1:abc"
 
 
 def test_job_executor_queues_parse_for_pdf_filename_with_generic_mime() -> None:
@@ -340,3 +364,4 @@ def test_job_executor_queues_parse_for_pdf_filename_with_generic_mime() -> None:
     )
 
     assert queue.enqueued[0]["job_type"] == "parse_artifact"
+    assert queue.enqueued[0]["dedupe_key"] == "parse_artifact:artifact-1:abc"

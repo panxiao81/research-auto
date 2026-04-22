@@ -7,7 +7,10 @@ from pydantic import BaseModel
 from starlette.staticfiles import StaticFiles
 
 from research_auto.infrastructure.postgres.database import Database
-from research_auto.infrastructure.postgres.repositories import PostgresReadRepository
+from research_auto.infrastructure.postgres.repositories import (
+    PostgresJobRepository,
+    PostgresReadRepository,
+)
 from research_auto.application.query_services import (
     QuestionAnswerService,
     ReadQueryService,
@@ -26,12 +29,15 @@ def create_app() -> FastAPI:
     settings = get_settings()
     db = Database(settings.database_url)
     provider = build_provider(settings)
+    job_repository = PostgresJobRepository(db)
     read_repository = PostgresReadRepository(db)
     read_service = ReadQueryService(read_repository)
     qa_service = QuestionAnswerService(read_repository, provider)
     app = FastAPI(title="research-auto", version="0.1.0")
     app.state.db = db
+    app.state.settings = settings
     app.state.provider = provider
+    app.state.job_repository = job_repository
     app.state.read_service = read_service
     app.state.qa_service = qa_service
     static_dir = Path(__file__).resolve().parents[4] / "static"
