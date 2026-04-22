@@ -9,22 +9,28 @@ from pypdf import PdfReader
 from research_auto.domain.records import ParsedPaper
 
 
-PARSER_VERSION = "pdf-v1"
+PARSER_VERSION = "pypdf-v1"
 
 
 def parse_pdf_file(source: str | BinaryIO) -> ParsedPaper:
     reader = PdfReader(source)
-    pages: list[str] = []
+    source_pages: list[str] = []
+    normalized_pages: list[str] = []
     for page in reader.pages:
-        text = page.extract_text() or ""
-        text = normalize_text(text)
-        if text:
-            pages.append(text)
-    full_text = "\n\n".join(pages).strip()
+        raw_text = sanitize_source_text(page.extract_text() or "")
+        normalized_text = normalize_text(raw_text)
+        if raw_text:
+            source_pages.append(raw_text)
+        if normalized_text:
+            normalized_pages.append(normalized_text)
+    source_text = "\n\n".join(source_pages).strip()
+    full_text = "\n\n".join(normalized_pages).strip()
     content_hash = hashlib.sha256(full_text.encode("utf-8")).hexdigest()
     abstract = extract_abstract(full_text)
     chunks = chunk_text(full_text)
     return ParsedPaper(
+        parser_version=PARSER_VERSION,
+        source_text=source_text,
         full_text=full_text,
         abstract_text=abstract,
         page_count=len(reader.pages),
@@ -33,8 +39,12 @@ def parse_pdf_file(source: str | BinaryIO) -> ParsedPaper:
     )
 
 
+def sanitize_source_text(text: str) -> str:
+    return text.replace("\x00", " ").strip()
+
+
 def normalize_text(text: str) -> str:
-    text = text.replace("\x00", " ")
+    text = sanitize_source_text(text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

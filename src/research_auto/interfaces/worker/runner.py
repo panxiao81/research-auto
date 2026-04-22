@@ -11,7 +11,7 @@ from research_auto.config import Settings
 from research_auto.infrastructure.crawlers.adapters import ResearchrCrawlerAdapter
 from research_auto.infrastructure.llm.adapters import LiteLLMSummaryAdapter
 from research_auto.infrastructure.parsing.adapters import PdfParserAdapter
-from research_auto.infrastructure.parsing.pdf_parser import PARSER_VERSION
+from research_auto.infrastructure.parsing.datalab_parser import DatalabParser
 from research_auto.infrastructure.postgres.database import Database
 from research_auto.infrastructure.postgres.repositories import (
     PostgresJobRepository,
@@ -46,6 +46,11 @@ class JobWorker:
             else None
         )
         storage = build_storage(settings)
+        parser = (
+            build_pdf_parser(settings, storage=storage)
+            if "parse_artifact" in self.queue.job_types
+            else PdfParserAdapter(storage=storage, datalab_parser=None)
+        )
         self.executor = JobExecutor(
             repository=PostgresPipelineRepository(db),
             queue=self.queue_repo,
@@ -53,10 +58,9 @@ class JobWorker:
             resolver=ResolverAdapter(),
             downloader=HttpDownloadAdapter(),
             storage=storage,
-            parser=PdfParserAdapter(storage=storage),
+            parser=parser,
             summarizer=summarizer,
             playwright_headless=settings.playwright_headless,
-            parser_version=PARSER_VERSION,
             prompt_version=PROMPT_VERSION,
             llm_provider=settings.llm_provider,
             llm_model=settings.llm_model,
@@ -144,4 +148,26 @@ def build_storage(settings: Settings) -> ArtifactStorageGateway:
             endpoint_url=settings.s3_endpoint_url,
         )
     raise ValueError(f"unsupported storage backend: {settings.storage_backend}")
-__all__ = ["JobWorker", "build_storage"]
+
+
+def build_pdf_parser(
+    settings: Settings, *, storage: ArtifactStorageGateway
+) -> PdfParserAdapter:
+    if settings.parser_backend == "pypdf":
+        return PdfParserAdapter(storage=storage, datalab_parser=None)
+
+    if settings.parser_backend == "datalab":
+        if not settings.datalab_api_key:
+            raise ValueError("DATALAB_API_KEY is required when PARSER_BACKEND=datalab")
+
+        datalab_parser = DatalabParser(
+            api_key=settings.datalab_api_key,
+            base_url=settings.datalab_base_url,
+            timeout_seconds=settings.datalab_timeout_seconds,
+        )
+        return PdfParserAdapter(storage=storage, datalab_parser=datalab_parser)
+
+    raise ValueError(f"unsupported parser backend: {settings.parser_backend}")
+
+
+__all__ = ["JobWorker", "build_pdf_parser", "build_storage"]

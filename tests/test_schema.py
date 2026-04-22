@@ -1,8 +1,106 @@
 from __future__ import annotations
 
+from research_auto.domain.records import ParsedPaper
+from research_auto.infrastructure.postgres.repositories import PostgresPipelineRepository
 from research_auto.infrastructure.postgres.schema import SCHEMA_SQL
 
 
 def test_schema_adds_storage_columns_for_existing_artifacts_table() -> None:
     assert "alter table artifacts add column if not exists storage_uri text;" in SCHEMA_SQL
     assert "alter table artifacts add column if not exists storage_key text;" in SCHEMA_SQL
+
+
+def test_schema_includes_parse_source_text() -> None:
+    assert "source_text text not null" in SCHEMA_SQL
+    assert "alter table paper_parses add column if not exists source_text text;" in SCHEMA_SQL
+    assert "alter table paper_parses alter column source_text set default '';" in SCHEMA_SQL
+    assert "update paper_parses set source_text = full_text where source_text is null;" in SCHEMA_SQL
+    assert "alter table paper_parses alter column source_text set not null;" in SCHEMA_SQL
+    assert "alter table paper_parses alter column source_text drop default;" in SCHEMA_SQL
+
+
+class _FakeCursor:
+    def __init__(self) -> None:
+        self.executed: list[tuple[str, object]] = []
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, query: str, params: object = None) -> None:
+        self.executed.append((query, params))
+
+    def fetchone(self) -> dict[str, str]:
+        return {"id": "parse-1"}
+
+
+class _FakeConnection:
+    def __init__(self, cursor: _FakeCursor) -> None:
+        self._cursor = cursor
+        self.committed = False
+
+    def __enter__(self) -> _FakeConnection:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def cursor(self) -> _FakeCursor:
+        return self._cursor
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+class _FakeDatabase:
+    def __init__(self) -> None:
+        self.cursor = _FakeCursor()
+        self.connection = _FakeConnection(self.cursor)
+
+    def connect(self) -> _FakeConnection:
+        return self.connection
+
+
+def test_replace_parse_persists_source_text_via_repository_behavior() -> None:
+    db = _FakeDatabase()
+    repository = PostgresPipelineRepository(db)  # type: ignore[arg-type]
+    parsed = ParsedPaper(
+        parser_version="pdf-v2",
+        source_text="raw parser output",
+        full_text="cleaned parser output",
+        abstract_text="abstract",
+        page_count=12,
+        content_hash="hash-1",
+        chunks=["chunk one", "chunk two"],
+    )
+
+    repository.replace_parse(
+        payload={"paper_id": "paper-1", "artifact_id": "artifact-1"},
+        parsed=parsed,
+        prompt_version="summary-v3",
+        llm_provider="github_copilot_oauth",
+        llm_model="gpt-5.4-mini",
+    )
+
+    insert_query, insert_params = next(
+        (query, params)
+        for query, params in db.cursor.executed
+        if "insert into paper_parses" in query
+    )
+    assert (
+        "insert into paper_parses (paper_id, artifact_id, parser_version, parse_status, source_text, full_text, abstract_text, page_count, content_hash)"
+        in insert_query
+    )
+    assert insert_params == (
+        "paper-1",
+        "artifact-1",
+        "pdf-v2",
+        "raw parser output",
+        "cleaned parser output",
+        "abstract",
+        12,
+        "hash-1",
+    )
+    assert db.connection.committed is True
