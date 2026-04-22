@@ -1,6 +1,8 @@
-SCHEMA_SQL = """
+EXTENSION_SQL = """
 create extension if not exists pgcrypto;
+"""
 
+CATALOG_SQL = """
 create table if not exists conferences (
     id uuid primary key default gen_random_uuid(),
     slug text not null unique,
@@ -34,7 +36,9 @@ create table if not exists crawl_runs (
     error_message text,
     created_at timestamptz not null default now()
 );
+"""
 
+PAPER_SQL = """
 create table if not exists papers (
     id uuid primary key default gen_random_uuid(),
     conference_id uuid not null references conferences(id) on delete cascade,
@@ -79,7 +83,9 @@ create table if not exists paper_authors (
     orcid text,
     unique (paper_id, author_order)
 );
+"""
 
+JOB_SQL = """
 create table if not exists jobs (
     id uuid primary key default gen_random_uuid(),
     job_type text not null,
@@ -130,7 +136,9 @@ create table if not exists page_snapshots (
     checksum_sha256 text not null,
     captured_at timestamptz not null default now()
 );
+"""
 
+ARTIFACT_PARSE_SQL = """
 create table if not exists artifacts (
     id uuid primary key default gen_random_uuid(),
     paper_id uuid not null references papers(id) on delete cascade,
@@ -249,7 +257,9 @@ alter table paper_summaries add column if not exists future_work_zh text;
 alter table paper_summaries add column if not exists takeaway text;
 alter table paper_summaries add column if not exists summary_short_zh text;
 alter table paper_summaries add column if not exists summary_long_zh text;
+"""
 
+TRIGGER_SQL = """
 create or replace function set_updated_at() returns trigger as $$
 begin
     new.updated_at = now();
@@ -281,3 +291,14 @@ create trigger paper_parses_set_updated_at before update on paper_parses for eac
 drop trigger if exists paper_summaries_set_updated_at on paper_summaries;
 create trigger paper_summaries_set_updated_at before update on paper_summaries for each row execute function set_updated_at();
 """
+
+SCHEMA_SQL = "\n\n".join(
+    [
+        EXTENSION_SQL,
+        CATALOG_SQL,
+        PAPER_SQL,
+        JOB_SQL,
+        ARTIFACT_PARSE_SQL,
+        TRIGGER_SQL,
+    ]
+)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from research_auto.domain.records import ParsedPaper
+from research_auto.infrastructure.postgres.database import Database
+from research_auto.infrastructure.postgres.migrations import YoyoMigrationRunner
 from research_auto.infrastructure.postgres.repositories import PostgresPipelineRepository
 from research_auto.infrastructure.postgres.schema import SCHEMA_SQL
 
@@ -61,6 +63,66 @@ class _FakeDatabase:
 
     def connect(self) -> _FakeConnection:
         return self.connection
+
+
+def test_yoyo_migration_runner_applies_pending_migrations_once(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _FakeBackend:
+        def lock(self):
+            return self
+
+        def __enter__(self):
+            calls.append("lock")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def to_apply(self, migrations):
+            calls.append("to_apply")
+            return ["migration-1"]
+
+        def apply_migrations(self, migrations):
+            calls.append(f"apply:{migrations}")
+
+    monkeypatch.setattr(
+        "research_auto.infrastructure.postgres.migrations.get_backend",
+        lambda dsn: _FakeBackend(),
+    )
+    monkeypatch.setattr(
+        "research_auto.infrastructure.postgres.migrations.read_migrations",
+        lambda path: ["migration-file"],
+    )
+
+    runner = YoyoMigrationRunner("postgresql://example")
+    applied = runner.migrate()
+
+    assert applied == 1
+    assert calls == ["lock", "to_apply", "apply:['migration-1']"]
+
+
+def test_database_migrate_delegates_to_yoyo_runner(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _FakeRunner:
+        def __init__(self, dsn: str) -> None:
+            calls.append(dsn)
+
+        def migrate(self) -> int:
+            calls.append("migrate")
+            return 3
+
+    monkeypatch.setattr(
+        "research_auto.infrastructure.postgres.database.YoyoMigrationRunner",
+        _FakeRunner,
+    )
+
+    database = Database("postgresql://example")
+    applied = database.migrate()
+
+    assert applied == 3
+    assert calls == ["postgresql://example", "migrate"]
 
 
 def test_replace_parse_persists_source_text_via_repository_behavior() -> None:

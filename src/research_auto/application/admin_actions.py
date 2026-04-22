@@ -16,7 +16,11 @@ ICSE_2026_HOME_URL = "https://conf.researchr.org/home/icse-2026"
 
 
 def bootstrap_db(settings: Settings) -> None:
-    Database(settings.database_url).bootstrap()
+    Database(settings.database_url).migrate()
+
+
+def migrate_db(settings: Settings) -> int:
+    return Database(settings.database_url).migrate()
 
 
 def seed_icse(settings: Settings) -> dict[str, str]:

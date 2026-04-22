@@ -34,7 +34,7 @@ Laptop-friendly prototype for a conference paper ingestion pipeline with:
 5. Bootstrap the schema and seed ICSE 2026:
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup bootstrap-db
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup migrate
 /Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup seed icse
 ```
 
@@ -77,7 +77,8 @@ docker compose run --rm worker uv run research-auto pipeline drain
 
 ## Commands
 
-- `setup bootstrap-db`: creates the initial schema
+- `setup migrate`: applies pending database migrations
+- `setup bootstrap-db`: compatibility alias for `setup migrate`
 - `setup seed icse`: inserts ICSE 2026 and its Research Track, then enqueues a crawl job
 - `pipeline drain`: runs jobs until the queue is empty
 - `pipeline drain --queue llm|parse|download|resolve|crawl|all`: drains only one worker queue
@@ -92,13 +93,14 @@ docker compose run --rm worker uv run research-auto pipeline drain
 Use the grouped CLI when you want a direct trigger rather than calling API endpoints.
 
 ```bash
-/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup bootstrap-db
+/Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup migrate
 /Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto setup seed icse
 /Users/xiao-pan/Library/Python/3.9/bin/uv run research-auto pipeline drain
 ```
 
 Options:
 
+- `setup migrate`
 - `setup bootstrap-db`
 - `setup seed icse`
 - `pipeline resolve [--limit N]`

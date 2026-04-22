@@ -15,6 +15,7 @@ from research_auto.application.admin_actions import (
     enqueue_resolve as enqueue_resolve_action,
     enqueue_resummarize_fallbacks as enqueue_resummarize_fallbacks_action,
     enqueue_summarize as enqueue_summarize_action,
+    migrate_db as migrate_db_action,
     repair_resolution_status as repair_resolution_status_action,
     seed_icse as seed_icse_action,
 )
@@ -22,6 +23,7 @@ from research_auto.application.query_services import (
     QuestionAnswerService,
     ReadQueryService,
 )
+from research_auto.application.queue_policies import get_queue_policy
 from research_auto.interfaces.api.app import create_app
 from research_auto.config import get_settings
 from research_auto.interfaces.worker.runner import JobWorker
@@ -31,7 +33,16 @@ from research_auto.infrastructure.llm.provider import build_provider
 def bootstrap_db() -> None:
     settings = get_settings()
     bootstrap_db_action(settings)
-    print("database bootstrapped")
+    print("database migrated")
+
+
+def migrate_db() -> None:
+    settings = get_settings()
+    applied = migrate_db_action(settings)
+    if applied:
+        print(f"applied {applied} migrations")
+    else:
+        print("database already up to date")
 
 
 def seed_icse() -> None:
@@ -145,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser = subparsers.add_parser("setup")
     setup_subparsers = setup_parser.add_subparsers(dest="command", required=True)
     setup_subparsers.add_parser("bootstrap-db")
+    setup_subparsers.add_parser("migrate")
     setup_subparsers.add_parser("seed-icse")
 
     pipeline_parser = subparsers.add_parser("pipeline")
@@ -209,6 +221,8 @@ def main() -> None:
         case "setup":
             if args.command == "bootstrap-db":
                 bootstrap_db()
+            elif args.command == "migrate":
+                migrate_db()
             elif args.command == "seed-icse":
                 seed_icse()
         case "pipeline":

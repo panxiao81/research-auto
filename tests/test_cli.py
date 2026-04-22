@@ -27,6 +27,10 @@ def test_grouped_cli_dispatch_names() -> None:
     assert setup_args.group == "setup"
     assert setup_args.command == "bootstrap-db"
 
+    migrate_args = parser.parse_args(["setup", "migrate"])
+    assert migrate_args.group == "setup"
+    assert migrate_args.command == "migrate"
+
     pipeline_args = parser.parse_args(["pipeline", "resolve", "--limit", "2"])
     assert pipeline_args.group == "pipeline"
     assert pipeline_args.command == "resolve"
@@ -51,10 +55,29 @@ def test_main_loads_dotenv_before_dispatch(monkeypatch) -> None:
     monkeypatch.setattr(app, "build_parser", lambda: DummyParser())
     monkeypatch.setattr(app, "load_dotenv", lambda: calls.append("load_dotenv"))
     monkeypatch.setattr(app, "bootstrap_db", lambda: calls.append("bootstrap_db"))
+    monkeypatch.setattr(app, "migrate_db", lambda: calls.append("migrate_db"))
 
     app.main()
 
     assert calls == ["load_dotenv", "parse_args", "bootstrap_db"]
+
+
+def test_migrate_cli_dispatches_to_database_migration(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class DummyParser:
+        def parse_args(self):
+            calls.append("parse_args")
+            return SimpleNamespace(group="setup", command="migrate")
+
+    monkeypatch.setattr(app, "build_parser", lambda: DummyParser())
+    monkeypatch.setattr(app, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr(app, "bootstrap_db", lambda: calls.append("bootstrap_db"))
+    monkeypatch.setattr(app, "migrate_db", lambda: calls.append("migrate_db"))
+
+    app.main()
+
+    assert calls == ["load_dotenv", "parse_args", "migrate_db"]
 
 
 def test_enqueue_parse_uses_checksum_aware_payload_and_dedupe(monkeypatch) -> None:

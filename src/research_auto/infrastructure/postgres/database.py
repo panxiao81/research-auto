@@ -6,7 +6,7 @@ from typing import Any, Iterator
 import psycopg
 from psycopg.rows import dict_row
 
-from research_auto.infrastructure.postgres.schema import SCHEMA_SQL
+from research_auto.infrastructure.postgres.migrations import YoyoMigrationRunner
 
 
 class Database:
@@ -19,7 +19,7 @@ class Database:
             yield conn
 
     def bootstrap(self) -> None:
-        with self.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(SCHEMA_SQL)
-            conn.commit()
+        self.migrate()
+
+    def migrate(self) -> int:
+        return YoyoMigrationRunner(self.dsn).migrate()
