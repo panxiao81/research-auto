@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     arxiv_delay_seconds: float = Field(3.0, alias="ARXIV_DELAY_SECONDS")
     arxiv_page_size: int = Field(100, alias="ARXIV_PAGE_SIZE")
     arxiv_num_retries: int = Field(5, alias="ARXIV_NUM_RETRIES")
+    parser_backend: str = Field("datalab", alias="PARSER_BACKEND")
+    datalab_api_key: str | None = Field(None, alias="DATALAB_API_KEY")
+    datalab_base_url: str = Field("https://www.datalab.to", alias="DATALAB_BASE_URL")
+    datalab_timeout_seconds: float = Field(60.0, alias="DATALAB_TIMEOUT_SECONDS")
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

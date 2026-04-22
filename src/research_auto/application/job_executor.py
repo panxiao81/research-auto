@@ -29,7 +29,6 @@ class JobExecutor:
         parser: ParseGateway,
         summarizer: SummaryGateway | None,
         playwright_headless: bool,
-        parser_version: str,
         prompt_version: str,
         llm_provider: str,
         llm_model: str,
@@ -43,7 +42,6 @@ class JobExecutor:
         self.parser = parser
         self.summarizer = summarizer
         self.playwright_headless = playwright_headless
-        self.parser_version = parser_version
         self.prompt_version = prompt_version
         self.llm_provider = llm_provider
         self.llm_model = llm_model
@@ -132,7 +130,6 @@ class JobExecutor:
         self.repository.replace_parse(
             payload=payload,
             parsed=parsed,
-            parser_version=self.parser_version,
             prompt_version=self.prompt_version,
             llm_provider=self.llm_provider,
             llm_model=self.llm_model,

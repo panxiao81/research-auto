@@ -82,7 +82,6 @@ class PipelineRepository(Protocol):
         *,
         payload: dict[str, Any],
         parsed: ParsedPaper,
-        parser_version: str,
         prompt_version: str,
         llm_provider: str,
         llm_model: str,

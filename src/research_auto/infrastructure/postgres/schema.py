@@ -165,6 +165,7 @@ create table if not exists paper_parses (
     artifact_id uuid not null references artifacts(id) on delete cascade,
     parser_version text not null,
     parse_status text not null default 'succeeded',
+    source_text text not null,
     full_text text not null,
     abstract_text text,
     page_count integer,
@@ -173,6 +174,12 @@ create table if not exists paper_parses (
     updated_at timestamptz not null default now(),
     unique (artifact_id, parser_version, content_hash)
 );
+
+alter table paper_parses add column if not exists source_text text;
+alter table paper_parses alter column source_text set default '';
+update paper_parses set source_text = full_text where source_text is null;
+alter table paper_parses alter column source_text set not null;
+alter table paper_parses alter column source_text drop default;
 
 create table if not exists paper_chunks (
     id uuid primary key default gen_random_uuid(),

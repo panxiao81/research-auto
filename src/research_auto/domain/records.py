@@ -26,6 +26,8 @@ class CrawlResult:
 
 @dataclass(slots=True)
 class ParsedPaper:
+    parser_version: str
+    source_text: str
     full_text: str
     abstract_text: str | None
     page_count: int

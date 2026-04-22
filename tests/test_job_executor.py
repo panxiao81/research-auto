@@ -65,7 +65,6 @@ class FakeRepository:
         *,
         payload: dict[str, object],
         parsed: ParsedPaper,
-        parser_version: str,
         prompt_version: str,
         llm_provider: str,
         llm_model: str,
@@ -168,7 +167,6 @@ def _executor(repo: FakeRepository, queue: FakeQueue) -> JobExecutor:
         parser=FakeParser(),
         summarizer=FakeSummarizer(),
         playwright_headless=True,
-        parser_version="pdf-v1",
         prompt_version="summary-v3",
         llm_provider="github_copilot_oauth",
         llm_model="gpt-5.4-mini",
@@ -221,6 +219,53 @@ def test_job_executor_saves_summary_via_port() -> None:
 
     assert repo.saved_summary is not None
     assert repo.saved_summary[0] == "litellm"
+
+
+def test_job_executor_saves_parse_via_port_without_separate_parser_version() -> None:
+    repo = FakeRepository()
+    queue = FakeQueue()
+
+    class Parser:
+        def parse(self, *, storage_uri: str) -> ParsedPaper:
+            assert storage_uri == "local://paper-1/paper.pdf"
+            return ParsedPaper(
+                parser_version="pdf-v2",
+                source_text="raw parser output",
+                full_text="cleaned parser output",
+                abstract_text="abstract",
+                page_count=12,
+                content_hash="hash-1",
+                chunks=["chunk one", "chunk two"],
+            )
+
+    executor = JobExecutor(
+        repository=repo,
+        queue=queue,
+        crawler=FakeCrawler(),
+        resolver=FakeResolver(),
+        downloader=FakeDownloader(),
+        storage=object(),
+        parser=Parser(),
+        summarizer=FakeSummarizer(),
+        playwright_headless=True,
+        prompt_version="summary-v3",
+        llm_provider="github_copilot_oauth",
+        llm_model="gpt-5.4-mini",
+    )
+
+    executor.execute(
+        {
+            "job_type": "parse_artifact",
+            "payload": {
+                "paper_id": "paper-1",
+                "artifact_id": "artifact-1",
+                "storage_uri": "local://paper-1/paper.pdf",
+            },
+        }
+    )
+
+    assert repo.saved_parse is not None
+    assert repo.saved_parse.parser_version == "pdf-v2"
 
 
 def test_job_executor_downloads_writes_and_queues_parse() -> None:
@@ -279,7 +324,6 @@ def test_job_executor_downloads_writes_and_queues_parse() -> None:
         parser=FakeParser(),
         summarizer=FakeSummarizer(),
         playwright_headless=True,
-        parser_version="pdf-v1",
         prompt_version="summary-v3",
         llm_provider="github_copilot_oauth",
         llm_model="gpt-5.4-mini",
@@ -350,7 +394,6 @@ def test_job_executor_queues_parse_for_pdf_filename_with_generic_mime() -> None:
         parser=FakeParser(),
         summarizer=FakeSummarizer(),
         playwright_headless=True,
-        parser_version="pdf-v1",
         prompt_version="summary-v3",
         llm_provider="github_copilot_oauth",
         llm_model="gpt-5.4-mini",

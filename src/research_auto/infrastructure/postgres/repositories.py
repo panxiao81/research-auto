@@ -944,7 +944,6 @@ class PostgresPipelineRepository:
         *,
         payload: dict[str, Any],
         parsed: ParsedPaper,
-        parser_version: str,
         prompt_version: str,
         llm_provider: str,
         llm_model: str,
@@ -976,11 +975,12 @@ class PostgresPipelineRepository:
                     (payload["artifact_id"],),
                 )
                 cur.execute(
-                    "insert into paper_parses (paper_id, artifact_id, parser_version, parse_status, full_text, abstract_text, page_count, content_hash) values (%s, %s, %s, 'succeeded', %s, %s, %s, %s) returning id",
+                    "insert into paper_parses (paper_id, artifact_id, parser_version, parse_status, source_text, full_text, abstract_text, page_count, content_hash) values (%s, %s, %s, 'succeeded', %s, %s, %s, %s, %s) returning id",
                     (
                         payload["paper_id"],
                         payload["artifact_id"],
-                        parser_version,
+                        parsed.parser_version,
+                        parsed.source_text,
                         parsed.full_text,
                         parsed.abstract_text,
                         parsed.page_count,
