@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: research-auto
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: research-auto-config
+  namespace: research-auto
+data:
+  PLAYWRIGHT_HEADLESS: "true"
+  WORKER_POLL_SECONDS: "5"
+  WORKER_QUEUE: "all"
+  STORAGE_BACKEND: "s3"
+  S3_PREFIX: "papers"
+  AWS_REGION: "us-east-1"
+  AWS_ENDPOINT_URL: "https://obj.ddupan.top"
+  DATALAB_BASE_URL: "https://www.datalab.to"
+  DATALAB_TIMEOUT_SECONDS: "60"
+  PARSER_BACKEND: "datalab"
+  LLM_PROVIDER: "github_copilot_oauth"
+  LLM_MODEL: "gpt-5.4-mini"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: research-auto-secret
+  namespace: research-auto
+type: Opaque
+stringData:
+  # Fill in from your cluster secret / external secret manager.
+  DATABASE_URL: "postgresql://USER:PASSWORD@shared-postgresql-rw.shared-db.svc.cluster.local:5432/postgres"
+  S3_BUCKET: "research"
+  DATALAB_API_KEY: "replace-me"
+  AWS_ACCESS_KEY_ID: "replace-me"
+  AWS_SECRET_ACCESS_KEY: "replace-me"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: research-auto-bootstrap-secret
+  namespace: research-auto
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://postgres:replace-me@shared-postgresql-rw.shared-db.svc.cluster.local:5432/postgres"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: research-auto-github-copilot-auth
+  namespace: research-auto
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: research-auto-api
+  namespace: research-auto
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app: research-auto-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-auto-api
+  namespace: research-auto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-auto-api
+  template:
+    metadata:
+      labels:
+        app: research-auto-api
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: ghcr.io/panxiao81/research-auto:sha-deb92ab
+          imagePullPolicy: IfNotPresent
+          command: ["uv", "run", "--no-sync", "research-auto", "serve", "api", "--host", "0.0.0.0", "--port", "8000"]
+          envFrom:
+            - configMapRef:
+                name: research-auto-config
+            - secretRef:
+                name: research-auto-secret
+          volumeMounts:
+            - name: github-copilot-auth
+              mountPath: /home/appuser/.config/litellm/github_copilot
+              readOnly: true
+          ports:
+            - containerPort: 8000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: github-copilot-auth
+          persistentVolumeClaim:
+            claimName: research-auto-github-copilot-auth
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-auto-worker
+  namespace: research-auto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-auto-worker
+  template:
+    metadata:
+      labels:
+        app: research-auto-worker
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/panxiao81/research-auto:sha-deb92ab
+          imagePullPolicy: IfNotPresent
+          command: ["uv", "run", "--no-sync", "research-auto", "serve", "worker"]
+          envFrom:
+            - configMapRef:
+                name: research-auto-config
+            - secretRef:
+                name: research-auto-secret
+          volumeMounts:
+            - name: github-copilot-auth
+              mountPath: /home/appuser/.config/litellm/github_copilot
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: github-copilot-auth
+          persistentVolumeClaim:
+            claimName: research-auto-github-copilot-auth
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: research-auto-bootstrap
+  namespace: research-auto
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: research-auto-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: ghcr.io/panxiao81/research-auto:sha-deb92ab
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              uv run --no-sync research-auto setup bootstrap-db
+              uv run --no-sync python - <<'PY'
+              import os
+              import psycopg
+
+              dsn = os.environ["DATABASE_URL"]
+              with psycopg.connect(dsn, autocommit=True) as conn:
+                  conn.execute("grant all privileges on database postgres to sharedadmin")
+                  conn.execute("grant usage, create on schema public to sharedadmin")
+                  conn.execute(
+                      "grant all privileges on all tables in schema public to sharedadmin"
+                  )
+                  conn.execute(
+                      "grant all privileges on all sequences in schema public to sharedadmin"
+                  )
+                  conn.execute(
+                      "alter default privileges in schema public grant all privileges on tables to sharedadmin"
+                  )
+                  conn.execute(
+                      "alter default privileges in schema public grant all privileges on sequences to sharedadmin"
+                  )
+              PY
+          envFrom:
+            - configMapRef:
+                name: research-auto-config
+            - secretRef:
+                name: research-auto-bootstrap-secret

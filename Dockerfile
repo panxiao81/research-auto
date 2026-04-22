@@ -2,7 +2,8 @@ FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    HOME=/home/appuser
 
 WORKDIR /app
 
@@ -20,9 +21,10 @@ RUN apt-get update \
 COPY static ./static
 COPY templates ./templates
 
-RUN useradd -m appuser
+RUN useradd -m appuser \
+    && chown -R appuser:appuser /app /home/appuser
 USER appuser
 
 EXPOSE 8000
 
-CMD ["uv", "run", "research-auto", "api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-sync", "research-auto", "api", "--host", "0.0.0.0", "--port", "8000"]
