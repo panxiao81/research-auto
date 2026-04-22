@@ -14,7 +14,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev \
-    && uv run playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -24,6 +23,10 @@ COPY templates ./templates
 RUN useradd -m appuser \
     && chown -R appuser:appuser /app /home/appuser
 USER appuser
+
+ENV HOME=/home/appuser
+
+RUN uv run playwright install chromium
 
 EXPOSE 8000
 
