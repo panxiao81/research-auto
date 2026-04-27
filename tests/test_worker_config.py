@@ -14,6 +14,7 @@ from research_auto.interfaces.worker.runner import JobWorker, build_pdf_parser
 def _settings(**overrides: str) -> Settings:
     values = {
         "DATABASE_URL": "postgresql://research_auto:research_auto@127.0.0.1:5432/research_auto",
+        "DATALAB_API_KEY": "",
         "LLM_PROVIDER": "mock",
         "LLM_MODEL": "gpt-5-mini",
     }

@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    database_url: str = Field(..., alias="DATABASE_URL")
+    database_url: str = Field("", alias="DATABASE_URL")
     playwright_headless: bool = Field(True, alias="PLAYWRIGHT_HEADLESS")
     worker_poll_seconds: int = Field(5, alias="WORKER_POLL_SECONDS")
     worker_queue: str = Field("all", alias="WORKER_QUEUE")

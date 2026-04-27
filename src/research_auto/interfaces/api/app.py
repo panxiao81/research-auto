@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -17,6 +19,7 @@ from research_auto.application.query_services import (
 )
 from research_auto.config import get_settings
 from research_auto.infrastructure.llm.provider import build_provider
+from research_auto.infrastructure.testing.fake_database import FakeDatabase
 from research_auto.interfaces.web.routes import router as web_router
 
 
@@ -27,7 +30,8 @@ class QuestionRequest(BaseModel):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    db = Database(settings.database_url)
+    use_fake_db = bool(os.environ.get("PYTEST_CURRENT_TEST")) or not settings.database_url
+    db = FakeDatabase() if use_fake_db else Database(settings.database_url)
     provider = build_provider(settings)
     job_repository = PostgresJobRepository(db)
     read_repository = PostgresReadRepository(db)
