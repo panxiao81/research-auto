@@ -3,7 +3,10 @@ from __future__ import annotations
 from research_auto.domain.records import ParsedPaper
 from research_auto.infrastructure.postgres.database import Database
 from research_auto.infrastructure.postgres.migrations import YoyoMigrationRunner
-from research_auto.infrastructure.postgres.repositories import PostgresPipelineRepository
+from research_auto.infrastructure.postgres.repositories import (
+    PostgresJobRepository,
+    PostgresPipelineRepository,
+)
 from research_auto.infrastructure.postgres.schema import SCHEMA_SQL
 
 
@@ -24,6 +27,7 @@ def test_schema_includes_parse_source_text() -> None:
 class _FakeCursor:
     def __init__(self) -> None:
         self.executed: list[tuple[str, object]] = []
+        self._rows: list[dict[str, str]] = []
 
     def __enter__(self) -> _FakeCursor:
         return self
@@ -36,6 +40,9 @@ class _FakeCursor:
 
     def fetchone(self) -> dict[str, str]:
         return {"id": "parse-1"}
+
+    def fetchall(self) -> list[dict[str, str]]:
+        return self._rows
 
 
 class _FakeConnection:
@@ -166,3 +173,21 @@ def test_replace_parse_persists_source_text_via_repository_behavior() -> None:
         "hash-1",
     )
     assert db.connection.committed is True
+
+
+def test_repair_running_jobs_resets_stale_jobs_and_attempts() -> None:
+    db = _FakeDatabase()
+    db.cursor._rows = [{"id": "job-1"}, {"id": "job-2"}]
+    repository = PostgresJobRepository(db)  # type: ignore[arg-type]
+
+    repaired = repository.repair_running_jobs(older_than_seconds=600)
+
+    assert repaired == 2
+    assert len(db.cursor.executed) == 2
+    assert "update jobs" in db.cursor.executed[0][0]
+    assert "status = 'pending'" in db.cursor.executed[0][0]
+    assert db.cursor.executed[0][1] == ("repaired stale running job after 600 seconds", 600)
+    assert db.cursor.executed[1] == (
+        "update job_attempts set finished_at = now(), success = false, error_message = %s where job_id = any(%s) and finished_at is null",
+        ("repaired stale running job after 600 seconds", ["job-1", "job-2"]),
+    )

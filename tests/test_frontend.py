@@ -292,6 +292,7 @@ def test_ui_admin_page_renders() -> None:
     assert "Admin" in response.text
     assert "Bootstrap Database" in response.text
     assert "Enqueue Resolve" in response.text
+    assert "Repair Running Jobs" in response.text
     assert "/ui/admin" in response.text
 
 
@@ -341,6 +342,12 @@ def test_ui_admin_page_renders() -> None:
             11,
         ),
         (
+            {"action": "repair-running-jobs", "older_than_seconds": "600"},
+            "Repaired 11 running jobs older than 600 seconds.",
+            "repair_running_jobs_action",
+            11,
+        ),
+        (
             {"action": "drain", "queue": "llm"},
             "Processed 12 jobs.",
             "drain_worker_action",
@@ -360,8 +367,20 @@ def test_ui_admin_actions_dispatch(monkeypatch, form, expected_message, patch_na
         monkeypatch.setattr(web_routes, patch_name, lambda settings: calls.append(settings.database_url))
     elif patch_name == "seed_icse_action":
         monkeypatch.setattr(web_routes, patch_name, lambda settings: patch_return)
+    elif patch_name == "repair_resolution_status_action":
+        monkeypatch.setattr(
+            web_routes,
+            patch_name,
+            lambda settings: calls.append(settings.database_url) or patch_return,
+        )
     elif patch_name == "drain_worker_action":
         monkeypatch.setattr(web_routes, patch_name, _record)
+    elif patch_name == "repair_running_jobs_action":
+        monkeypatch.setattr(
+            web_routes,
+            patch_name,
+            lambda settings, older_than_seconds: calls.append((settings.database_url, older_than_seconds)) or patch_return,
+        )
     else:
         monkeypatch.setattr(web_routes, patch_name, lambda settings, limit: calls.append((settings.database_url, limit)) or patch_return)
 

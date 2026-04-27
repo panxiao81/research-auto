@@ -345,6 +345,35 @@ class PostgresJobRepository:
             conn.commit()
         return job
 
+    def repair_running_jobs(self, *, older_than_seconds: int) -> int:
+        repair_message = f"repaired stale running job after {older_than_seconds} seconds"
+        with self.db.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update jobs
+                    set status = 'pending',
+                        available_at = now(),
+                        locked_at = null,
+                        worker_id = null,
+                        last_error = %s
+                    where status = 'running'
+                      and locked_at is not null
+                      and locked_at < now() - (%s * interval '1 second')
+                    returning id
+                    """,
+                    (repair_message, older_than_seconds),
+                )
+                repaired_jobs = cur.fetchall()
+                job_ids = [row["id"] for row in repaired_jobs]
+                if job_ids:
+                    cur.execute(
+                        "update job_attempts set finished_at = now(), success = false, error_message = %s where job_id = any(%s) and finished_at is null",
+                        (repair_message, job_ids),
+                    )
+            conn.commit()
+        return len(job_ids)
+
     def has_pending_jobs(self, *, job_types: tuple[str, ...]) -> bool:
         if not job_types:
             return False

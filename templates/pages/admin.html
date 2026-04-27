@@ -86,6 +86,17 @@
             </form>
           </div>
           <div class="col-md-6">
+            <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2" onsubmit="return confirm('Reset running jobs older than the selected threshold? This will make them available for reprocessing.');">
+              <input type="hidden" name="action" value="repair-running-jobs">
+              <div>
+                <label class="form-label small mb-1" for="running-job-age-seconds">Older than seconds</label>
+                <input class="form-control form-control-sm" id="running-job-age-seconds" name="older_than_seconds" type="number" min="1" value="{{ defaults.running_job_age_seconds }}">
+              </div>
+              <p class="small text-body-secondary mb-0">Reset jobs stuck in <code>running</code> so the queue can pick them up again.</p>
+              <button class="btn btn-outline-danger btn-sm" type="submit">Repair Running Jobs</button>
+            </form>
+          </div>
+          <div class="col-md-6">
             <form method="post" action="/ui/admin" class="border rounded p-3 h-100 d-grid gap-2">
               <input type="hidden" name="action" value="drain">
               <div>

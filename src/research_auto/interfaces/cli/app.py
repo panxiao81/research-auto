@@ -17,6 +17,7 @@ from research_auto.application.admin_actions import (
     enqueue_summarize as enqueue_summarize_action,
     migrate_db as migrate_db_action,
     repair_resolution_status as repair_resolution_status_action,
+    repair_running_jobs as repair_running_jobs_action,
     seed_icse as seed_icse_action,
 )
 from research_auto.application.query_services import (
@@ -61,6 +62,12 @@ def repair_resolution_status() -> None:
     settings = get_settings()
     repaired = repair_resolution_status_action(settings)
     print(f"repaired {repaired} papers")
+
+
+def repair_running_jobs(older_than_seconds: int) -> None:
+    settings = get_settings()
+    repaired = repair_running_jobs_action(settings, older_than_seconds)
+    print(f"repaired {repaired} running jobs older than {older_than_seconds} seconds")
 
 
 def enqueue_parse(limit: int | None) -> None:
@@ -176,6 +183,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pipeline_subparsers.add_parser("repair-resolution-status")
 
+    repair_running_parser = pipeline_subparsers.add_parser("repair-running-jobs")
+    repair_running_parser.add_argument("--older-than-seconds", type=int, default=900)
+
     drain_parser = pipeline_subparsers.add_parser("drain")
     drain_parser.add_argument("--queue")
 
@@ -236,6 +246,8 @@ def main() -> None:
                 enqueue_resummarize_fallbacks(args.limit)
             elif args.command == "repair-resolution-status":
                 repair_resolution_status()
+            elif args.command == "repair-running-jobs":
+                repair_running_jobs(args.older_than_seconds)
             elif args.command == "drain":
                 drain_worker(args.queue)
         case "inspect":

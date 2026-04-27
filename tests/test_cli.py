@@ -36,6 +36,13 @@ def test_grouped_cli_dispatch_names() -> None:
     assert pipeline_args.command == "resolve"
     assert pipeline_args.limit == 2
 
+    repair_args = parser.parse_args(
+        ["pipeline", "repair-running-jobs", "--older-than-seconds", "600"]
+    )
+    assert repair_args.group == "pipeline"
+    assert repair_args.command == "repair-running-jobs"
+    assert repair_args.older_than_seconds == 600
+
     ask_args = parser.parse_args(["inspect", "ask", "paper", "paper-1", "Why now?"])
     assert ask_args.group == "inspect"
     assert ask_args.command == "ask"
@@ -80,44 +87,43 @@ def test_migrate_cli_dispatches_to_database_migration(monkeypatch) -> None:
     assert calls == ["load_dotenv", "parse_args", "migrate_db"]
 
 
-def test_enqueue_parse_uses_checksum_aware_payload_and_dedupe(monkeypatch) -> None:
-    enqueued: list[dict[str, object]] = []
+def test_repair_running_jobs_cli_dispatches_to_admin_action(monkeypatch) -> None:
+    calls: list[object] = []
 
-    class FakeJobs:
-        def list_downloaded_pdf_artifacts(self, *, limit: int | None = None):
-            assert limit == 2
-            return [
-                {
-                    "id": "artifact-1",
-                    "paper_id": "paper-1",
-                    "storage_uri": "local://paper-1/paper.pdf",
-                    "checksum_sha256": "abc123",
-                }
-            ]
+    class DummyParser:
+        def parse_args(self):
+            calls.append("parse_args")
+            return SimpleNamespace(
+                group="pipeline", command="repair-running-jobs", older_than_seconds=600
+            )
 
-        def enqueue_job(self, **kwargs: object) -> None:
-            enqueued.append(kwargs)
+    monkeypatch.setattr(app, "build_parser", lambda: DummyParser())
+    monkeypatch.setattr(app, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr(
+        app,
+        "repair_running_jobs",
+        lambda older_than_seconds: calls.append(older_than_seconds),
+    )
+
+    app.main()
+
+    assert calls == ["load_dotenv", "parse_args", 600]
+
+
+def test_enqueue_parse_cli_delegates_to_admin_action(monkeypatch) -> None:
+    calls: list[object] = []
 
     monkeypatch.setattr(
         app,
         "get_settings",
         lambda: SimpleNamespace(database_url="postgresql://example"),
     )
-    monkeypatch.setattr(app, "Database", lambda url: object())
-    monkeypatch.setattr(app, "PostgresJobRepository", lambda db: FakeJobs())
+    monkeypatch.setattr(
+        app,
+        "enqueue_parse_action",
+        lambda settings, limit: calls.append((settings.database_url, limit)) or 3,
+    )
 
     app.enqueue_parse(2)
 
-    assert enqueued == [
-        {
-            "job_type": "parse_artifact",
-            "payload": {
-                "paper_id": "paper-1",
-                "artifact_id": "artifact-1",
-                "storage_uri": "local://paper-1/paper.pdf",
-                "checksum_sha256": "abc123",
-            },
-            "dedupe_key": "parse_artifact:artifact-1:abc123",
-            "priority": 40,
-        }
-    ]
+    assert calls == [("postgresql://example", 2)]

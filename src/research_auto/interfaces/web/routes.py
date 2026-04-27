@@ -14,6 +14,7 @@ from research_auto.application.admin_actions import (
     enqueue_resummarize_fallbacks as enqueue_resummarize_fallbacks_action,
     enqueue_summarize as enqueue_summarize_action,
     repair_resolution_status as repair_resolution_status_action,
+    repair_running_jobs as repair_running_jobs_action,
     seed_icse as seed_icse_action,
 )
 from research_auto.infrastructure.postgres.database import Database
@@ -38,6 +39,7 @@ templates = Jinja2Templates(directory=str(REPO_ROOT / "templates"))
 router = APIRouter(include_in_schema=False)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 ADMIN_DEFAULT_LIMIT = 50
+ADMIN_DEFAULT_RUNNING_JOB_AGE_SECONDS = 900
 
 
 def _to_bool(value: str | None) -> bool | None:
@@ -79,6 +81,7 @@ def _admin_context(
             "parse_limit": ADMIN_DEFAULT_LIMIT,
             "summarize_limit": ADMIN_DEFAULT_LIMIT,
             "fallback_limit": ADMIN_DEFAULT_LIMIT,
+            "running_job_age_seconds": ADMIN_DEFAULT_RUNNING_JOB_AGE_SECONDS,
             "drain_queue": request.app.state.settings.worker_queue,
         },
     }
@@ -184,6 +187,19 @@ async def ui_admin_action(request: Request) -> HTMLResponse:
         elif action == "repair-resolution-status":
             repaired = repair_resolution_status_action(settings)
             result = {"kind": "success", "message": f"Repaired {repaired} papers."}
+        elif action == "repair-running-jobs":
+            older_than_seconds = _parse_limit(
+                form.get("older_than_seconds"),
+                default=ADMIN_DEFAULT_RUNNING_JOB_AGE_SECONDS,
+            )
+            assert older_than_seconds is not None
+            repaired = repair_running_jobs_action(settings, older_than_seconds)
+            result = {
+                "kind": "success",
+                "message": (
+                    f"Repaired {repaired} running jobs older than {older_than_seconds} seconds."
+                ),
+            }
         elif action == "drain":
             queue = str(form.get("queue") or "").strip() or None
             processed = drain_worker_action(settings, queue)

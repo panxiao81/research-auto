@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from research_auto.application.llm import PROMPT_VERSION
 from research_auto.application.queue_policies import get_queue_policy
 from research_auto.config import Settings
@@ -13,6 +15,7 @@ from research_auto.interfaces.worker.runner import JobWorker
 
 ICSE_2026_TRACK_URL = "https://conf.researchr.org/track/icse-2026/icse-2026-research-track?#event-overview"
 ICSE_2026_HOME_URL = "https://conf.researchr.org/home/icse-2026"
+logger = logging.getLogger(__name__)
 
 
 def bootstrap_db(settings: Settings) -> None:
@@ -75,6 +78,19 @@ def enqueue_resolve(settings: Settings, limit: int | None) -> int:
 def repair_resolution_status(settings: Settings) -> int:
     db = Database(settings.database_url)
     return PostgresJobRepository(db).repair_resolved_without_pdf()
+
+
+def repair_running_jobs(settings: Settings, older_than_seconds: int) -> int:
+    db = Database(settings.database_url)
+    repaired = PostgresJobRepository(db).repair_running_jobs(
+        older_than_seconds=older_than_seconds
+    )
+    logger.info(
+        "repaired %s running jobs older than %s seconds",
+        repaired,
+        older_than_seconds,
+    )
+    return repaired
 
 
 def enqueue_parse(settings: Settings, limit: int | None) -> int:

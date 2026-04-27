@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
@@ -25,6 +26,9 @@ from research_auto.infrastructure.storage.adapters import (
     LocalArtifactStorageAdapter,
     S3ArtifactStorageAdapter,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class JobWorker:
@@ -90,13 +94,40 @@ class JobWorker:
         if not job:
             return False
 
+        logger.info(
+            "claimed job id=%s type=%s worker_id=%s",
+            job["id"],
+            job["job_type"],
+            self.worker_id,
+        )
         attempt_id = self._start_attempt(job["id"])
+        logger.info(
+            "started attempt id=%s job_id=%s type=%s worker_id=%s",
+            attempt_id,
+            job["id"],
+            job["job_type"],
+            self.worker_id,
+        )
         try:
             self.executor.execute(job)
         except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "job failed id=%s type=%s attempt_id=%s worker_id=%s",
+                job["id"],
+                job["job_type"],
+                attempt_id,
+                self.worker_id,
+            )
             self._fail_job(job, attempt_id, str(exc))
             return True
 
+        logger.info(
+            "completed job id=%s type=%s attempt_id=%s worker_id=%s",
+            job["id"],
+            job["job_type"],
+            attempt_id,
+            self.worker_id,
+        )
         self._succeed_job(job, attempt_id)
         return True
 
