@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from research_auto.application.queue_policies import (
     get_queue_policy as get_application_queue_policy,
 )
@@ -199,3 +201,33 @@ def test_job_worker_skips_parser_setup_for_non_parse_queue(monkeypatch) -> None:
     worker = JobWorker(db=object(), settings=settings)
 
     assert worker.queue.name == "resolve"
+
+
+def test_job_worker_logs_payload_when_claiming_job(caplog) -> None:
+    settings = _settings(WORKER_QUEUE="llm")
+
+    class FakeExecutor:
+        def execute(self, job: dict[str, object]) -> None:
+            return None
+
+    worker = object.__new__(JobWorker)
+    worker.worker_id = "worker-1"
+    worker.executor = FakeExecutor()
+    worker._claim_next_job = lambda: {
+        "id": "job-1",
+        "job_type": "summarize_paper",
+        "payload": {"paper_id": "paper-1", "paper_parse_id": "parse-1"},
+    }
+    worker._start_attempt = lambda job_id: "attempt-1"
+    worker._succeed_job = lambda job, attempt_id: None
+    worker._fail_job = lambda job, attempt_id, error_message: None
+
+    with caplog.at_level(logging.INFO, logger="research_auto.interfaces.worker.runner"):
+        processed = JobWorker.run_once(worker)
+
+    assert processed is True
+    assert any(
+        'claimed job id=job-1 type=summarize_paper worker_id=worker-1 payload={"paper_id":"paper-1","paper_parse_id":"parse-1"}'
+        in record.message
+        for record in caplog.records
+    )

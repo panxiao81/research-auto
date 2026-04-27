@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -11,6 +12,7 @@ from research_auto.application.storage_types import ArtifactStorageGateway
 from research_auto.config import Settings
 from research_auto.infrastructure.crawlers.adapters import ResearchrCrawlerAdapter
 from research_auto.infrastructure.llm.adapters import LiteLLMSummaryAdapter
+from research_auto.infrastructure.job_logging import job_logging_context
 from research_auto.infrastructure.parsing.adapters import PdfParserAdapter
 from research_auto.infrastructure.parsing.datalab_parser import DatalabParser
 from research_auto.infrastructure.postgres.database import Database
@@ -29,6 +31,13 @@ from research_auto.infrastructure.storage.adapters import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _format_payload(payload: object) -> str:
+    try:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    except TypeError:
+        return repr(payload)
 
 
 class JobWorker:
@@ -95,38 +104,49 @@ class JobWorker:
             return False
 
         logger.info(
-            "claimed job id=%s type=%s worker_id=%s",
+            "claimed job id=%s type=%s worker_id=%s payload=%s",
             job["id"],
             job["job_type"],
             self.worker_id,
+            _format_payload(job.get("payload")),
         )
         attempt_id = self._start_attempt(job["id"])
         logger.info(
-            "started attempt id=%s job_id=%s type=%s worker_id=%s",
+            "started attempt id=%s job_id=%s type=%s worker_id=%s payload=%s",
             attempt_id,
             job["id"],
             job["job_type"],
             self.worker_id,
+            _format_payload(job.get("payload")),
         )
         try:
-            self.executor.execute(job)
+            with job_logging_context(
+                job_id=str(job["id"]),
+                job_type=str(job["job_type"]),
+                attempt_id=attempt_id,
+                worker_id=self.worker_id,
+                payload=job.get("payload"),
+            ):
+                self.executor.execute(job)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
-                "job failed id=%s type=%s attempt_id=%s worker_id=%s",
+                "job failed id=%s type=%s attempt_id=%s worker_id=%s payload=%s",
                 job["id"],
                 job["job_type"],
                 attempt_id,
                 self.worker_id,
+                _format_payload(job.get("payload")),
             )
             self._fail_job(job, attempt_id, str(exc))
             return True
 
         logger.info(
-            "completed job id=%s type=%s attempt_id=%s worker_id=%s",
+            "completed job id=%s type=%s attempt_id=%s worker_id=%s payload=%s",
             job["id"],
             job["job_type"],
             attempt_id,
             self.worker_id,
+            _format_payload(job.get("payload")),
         )
         self._succeed_job(job, attempt_id)
         return True

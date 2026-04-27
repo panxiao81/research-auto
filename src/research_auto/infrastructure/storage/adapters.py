@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -8,6 +9,10 @@ from urllib.parse import urlparse
 import boto3
 
 from research_auto.application.storage_types import StorageWriteResult
+from research_auto.infrastructure.job_logging import adapter_log_message
+
+
+logger = logging.getLogger(__name__)
 
 
 class LocalArtifactStorageAdapter:
@@ -22,24 +27,51 @@ class LocalArtifactStorageAdapter:
         content: bytes,
         mime_type: str | None,
     ) -> StorageWriteResult:
-        target_dir = self.artifact_root / paper_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / file_name
-        target_path.write_bytes(content)
-        return StorageWriteResult(
-            storage_uri=f"local://{paper_id}/{file_name}",
-            storage_key=f"{paper_id}/{file_name}",
-            byte_size=len(content),
-            mime_type=mime_type,
-            checksum_sha256=hashlib.sha256(content).hexdigest(),
+        logger.info(
+            adapter_log_message("storage", "start", action="write", paper_id=paper_id, file_name=file_name)
         )
+        try:
+            target_dir = self.artifact_root / paper_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_path = target_dir / file_name
+            target_path.write_bytes(content)
+            result = StorageWriteResult(
+                storage_uri=f"local://{paper_id}/{file_name}",
+                storage_key=f"{paper_id}/{file_name}",
+                byte_size=len(content),
+                mime_type=mime_type,
+                checksum_sha256=hashlib.sha256(content).hexdigest(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                adapter_log_message("storage", "error", action="write", paper_id=paper_id, file_name=file_name)
+            )
+            raise
+        logger.info(
+            adapter_log_message(
+                "storage",
+                "success",
+                action="write",
+                paper_id=paper_id,
+                file_name=file_name,
+                storage_uri=result.storage_uri,
+            )
+        )
+        return result
 
     def read(self, *, storage_uri: str) -> BytesIO:
-        parsed = urlparse(storage_uri)
-        if parsed.scheme != "local":
-            raise ValueError(f"unsupported storage uri: {storage_uri}")
-        path = self.artifact_root / parsed.netloc / parsed.path.lstrip("/")
-        return BytesIO(path.read_bytes())
+        logger.info(adapter_log_message("storage", "start", action="read", storage_uri=storage_uri))
+        try:
+            parsed = urlparse(storage_uri)
+            if parsed.scheme != "local":
+                raise ValueError(f"unsupported storage uri: {storage_uri}")
+            path = self.artifact_root / parsed.netloc / parsed.path.lstrip("/")
+            data = BytesIO(path.read_bytes())
+        except Exception:  # noqa: BLE001
+            logger.exception(adapter_log_message("storage", "error", action="read", storage_uri=storage_uri))
+            raise
+        logger.info(adapter_log_message("storage", "success", action="read", storage_uri=storage_uri))
+        return data
 
 
 class S3ArtifactStorageAdapter:
@@ -64,18 +96,50 @@ class S3ArtifactStorageAdapter:
         mime_type: str | None,
     ) -> StorageWriteResult:
         key = f"{self.prefix}/{paper_id}/{file_name}"
-        self.s3.upload_fileobj(BytesIO(content), self.bucket, key)
-        return StorageWriteResult(
-            storage_uri=f"s3://{self.bucket}/{key}",
-            storage_key=key,
-            byte_size=len(content),
-            mime_type=mime_type,
-            checksum_sha256=hashlib.sha256(content).hexdigest(),
+        logger.info(
+            adapter_log_message(
+                "storage", "start", action="write", paper_id=paper_id, file_name=file_name, bucket=self.bucket
+            )
         )
+        try:
+            self.s3.upload_fileobj(BytesIO(content), self.bucket, key)
+            result = StorageWriteResult(
+                storage_uri=f"s3://{self.bucket}/{key}",
+                storage_key=key,
+                byte_size=len(content),
+                mime_type=mime_type,
+                checksum_sha256=hashlib.sha256(content).hexdigest(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                adapter_log_message(
+                    "storage", "error", action="write", paper_id=paper_id, file_name=file_name, bucket=self.bucket
+                )
+            )
+            raise
+        logger.info(
+            adapter_log_message(
+                "storage",
+                "success",
+                action="write",
+                paper_id=paper_id,
+                file_name=file_name,
+                bucket=self.bucket,
+                storage_uri=result.storage_uri,
+            )
+        )
+        return result
 
     def read(self, *, storage_uri: str) -> BytesIO:
-        parsed = urlparse(storage_uri)
-        if parsed.scheme != "s3":
-            raise ValueError(f"unsupported storage uri: {storage_uri}")
-        response = self.s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
-        return BytesIO(response["Body"].read())
+        logger.info(adapter_log_message("storage", "start", action="read", storage_uri=storage_uri))
+        try:
+            parsed = urlparse(storage_uri)
+            if parsed.scheme != "s3":
+                raise ValueError(f"unsupported storage uri: {storage_uri}")
+            response = self.s3.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
+            data = BytesIO(response["Body"].read())
+        except Exception:  # noqa: BLE001
+            logger.exception(adapter_log_message("storage", "error", action="read", storage_uri=storage_uri))
+            raise
+        logger.info(adapter_log_message("storage", "success", action="read", storage_uri=storage_uri))
+        return data

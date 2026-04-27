@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 from research_auto.domain.records import AuthorCandidate, CrawlResult, PaperCandidate
@@ -16,7 +17,10 @@ async def crawl_track(
         browser = await playwright.chromium.launch(headless=headless)
         page = await browser.new_page()
         await page.goto(track_url, wait_until="domcontentloaded")
-        await page.wait_for_load_state("networkidle")
+        try:
+            await page.wait_for_load_state("networkidle")
+        except PlaywrightTimeoutError:
+            pass
 
         raw_candidates = await _extract_accepted_papers(page)
         html = await page.content()
@@ -72,46 +76,49 @@ async def _extract_accepted_papers(page) -> list[dict[str, object]]:
         row_links = await row.locator("a[href]").evaluate_all(
             "elements => elements.map(el => ({ text: (el.textContent || '').trim(), href: el.href }))"
         )
-        await trigger.click()
-        modal = page.locator(f"#modal-{event_id}")
-        await modal.wait_for(state="visible", timeout=10000)
-        title = await _safe_text(
-            modal.locator(".event-title strong").first
-        ) or await _safe_text(trigger)
-        paragraphs = await modal.locator(".modal-body p").all_text_contents()
-        abstract = (
-            "\n\n".join(text.strip() for text in paragraphs if text.strip()) or None
-        )
-        session_name = await _safe_text(modal.locator(".modal-header a.navigate").first)
-        modal_links = await modal.locator("a[href]").evaluate_all(
-            "elements => elements.map(el => ({ text: (el.textContent || '').trim(), href: el.href }))"
-        )
-        detail_url = next(
-            (item["href"] for item in modal_links if "/details/" in item["href"]), None
-        )
-        pdf_url = next(
-            (
-                item["href"]
-                for item in [*row_links, *modal_links]
-                if item["href"].endswith(".pdf")
-            ),
-            None,
-        )
-        candidates.append(
-            {
-                "title": title,
-                "authors": authors,
-                "detail_url": detail_url,
-                "pdf_url": pdf_url,
-                "abstract": abstract,
-                "session_name": session_name,
-                "event_id": event_id,
-            }
-        )
-        close_button = modal.locator(".close").first
-        if await close_button.count() > 0:
-            await close_button.click()
-            await modal.wait_for(state="hidden", timeout=10000)
+        try:
+            await trigger.click()
+            modal = page.locator(f"#modal-{event_id}")
+            await modal.wait_for(state="visible", timeout=10000)
+            title = await _safe_text(
+                modal.locator(".event-title strong").first
+            ) or await _safe_text(trigger)
+            paragraphs = await modal.locator(".modal-body p").all_text_contents()
+            abstract = (
+                "\n\n".join(text.strip() for text in paragraphs if text.strip()) or None
+            )
+            session_name = await _safe_text(modal.locator(".modal-header a.navigate").first)
+            modal_links = await modal.locator("a[href]").evaluate_all(
+                "elements => elements.map(el => ({ text: (el.textContent || '').trim(), href: el.href }))"
+            )
+            detail_url = next(
+                (item["href"] for item in modal_links if "/details/" in item["href"]), None
+            )
+            pdf_url = next(
+                (
+                    item["href"]
+                    for item in [*row_links, *modal_links]
+                    if item["href"].endswith(".pdf")
+                ),
+                None,
+            )
+            candidates.append(
+                {
+                    "title": title,
+                    "authors": authors,
+                    "detail_url": detail_url,
+                    "pdf_url": pdf_url,
+                    "abstract": abstract,
+                    "session_name": session_name,
+                    "event_id": event_id,
+                }
+            )
+            close_button = modal.locator(".close").first
+            if await close_button.count() > 0:
+                await close_button.click()
+                await modal.wait_for(state="hidden", timeout=10000)
+        except PlaywrightTimeoutError:
+            continue
     return json.loads(json.dumps(candidates))
 
 
