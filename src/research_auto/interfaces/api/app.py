@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from research_auto.application.query_services import (
 from research_auto.config import get_settings
 from research_auto.infrastructure.llm.provider import build_provider
 from research_auto.infrastructure.testing.fake_database import FakeDatabase
+from research_auto.interfaces.mcp.server import build_mcp_server
 from research_auto.interfaces.web.routes import router as web_router
 
 
@@ -42,8 +44,32 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.provider = provider
     app.state.job_repository = job_repository
+    app.state.read_repository = read_repository
     app.state.read_service = read_service
     app.state.qa_service = qa_service
+    mcp_server = build_mcp_server(
+        read_service=read_service,
+        read_repository=read_repository,
+    )
+    mcp_http_app = mcp_server.streamable_http_app()
+    mcp_session: AbstractAsyncContextManager[None] | None = None
+
+    @app.on_event("startup")
+    async def start_mcp_session() -> None:
+        nonlocal mcp_session
+        mcp_session = mcp_server.session_manager.run()
+        await mcp_session.__aenter__()
+
+    @app.on_event("shutdown")
+    async def stop_mcp_session() -> None:
+        if mcp_session is None:
+            return
+        await mcp_session.__aexit__(None, None, None)
+
+    app.mount(
+        "/mcp",
+        mcp_http_app,
+    )
     static_dir = Path(__file__).resolve().parents[4] / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     app.include_router(web_router)

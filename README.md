@@ -88,6 +88,24 @@ docker compose run --rm worker uv run research-auto pipeline drain
 - `serve worker --queue llm|parse|download|resolve|crawl|all`: claims and executes jobs from one PostgreSQL worker queue
 - `serve api`: runs the FastAPI service
 
+## MCP Endpoint
+
+The FastAPI service also exposes a Model Context Protocol endpoint at `/mcp`.
+
+Current MCP tools:
+
+- `search_papers(query, limit)`
+- `get_paper(id)`
+- `search_context(query, paper_id=None, limit=8)`
+
+Run the API as usual:
+
+    uv run research-auto serve api --host 127.0.0.1 --port 8000
+
+Then point an MCP client at:
+
+    http://127.0.0.1:8000/mcp
+
 ## Triggering the Pipeline
 
 Use the grouped CLI when you want a direct trigger rather than calling API endpoints.

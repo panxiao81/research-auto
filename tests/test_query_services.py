@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+import pytest
+
 from research_auto.application.query_services import (
     QuestionAnswerService,
     ReadQueryService,
 )
 from research_auto.application.llm_types import QuestionAnswer
+from research_auto.interfaces.mcp.tools import (
+    McpPaperLookupError,
+    get_paper_tool,
+    search_context_tool,
+    search_papers_tool,
+)
 
 
 class FakeReadRepository:
+    def __init__(self) -> None:
+        self.search_calls: list[tuple[str, int]] = []
+        self.paper_context_calls: list[tuple[str, str, int]] = []
+        self.library_context_calls: list[tuple[str, int]] = []
+
     def list_papers(self, **kwargs):
         return "page"
 
@@ -28,6 +41,7 @@ class FakeReadRepository:
         }
 
     def search_papers(self, *, q: str, limit: int):
+        self.search_calls.append((q, limit))
         return [{"canonical_title": q, "limit": limit}]
 
     def get_stats(self):
@@ -49,9 +63,11 @@ class FakeReadRepository:
         return {"paper": {"id": paper_id}}
 
     def get_paper_question_context(self, *, paper_id: str, question: str, limit: int):
+        self.paper_context_calls.append((paper_id, question, limit))
         return (["chunk 1", "chunk 2"], {"summary_long": "fallback"})
 
     def get_library_question_context(self, *, question: str, limit: int):
+        self.library_context_calls.append((question, limit))
         return (
             ["[Paper A] chunk"],
             {"summary_long": "fallback"},
@@ -91,3 +107,75 @@ def test_question_answer_service_dedupes_library_papers() -> None:
 
     assert answer["answer"] == "ok"
     assert len(answer["papers"]) == 1
+
+
+def test_search_papers_tool_clamps_limit() -> None:
+    repository = FakeReadRepository()
+    service = ReadQueryService(repository)
+
+    result = search_papers_tool(
+        read_service=service, query="graph neural networks", limit=999
+    )
+
+    assert result["query"] == "graph neural networks"
+    assert result["limit"] == 20
+    assert result["results"] == [{"canonical_title": "graph neural networks", "limit": 20}]
+
+
+def test_get_paper_tool_raises_for_missing_paper() -> None:
+    class MissingPaperRepository(FakeReadRepository):
+        def get_paper_detail(self, *, paper_id: str):
+            return {
+                "paper": None,
+                "authors": [],
+                "artifacts": [],
+                "parse": None,
+                "chunks": [],
+                "summary": None,
+            }
+
+    service = ReadQueryService(MissingPaperRepository())
+
+    with pytest.raises(McpPaperLookupError, match="missing-paper"):
+        get_paper_tool(read_service=service, paper_id="missing-paper")
+
+
+def test_search_context_tool_uses_paper_scope_when_paper_id_present() -> None:
+    repository = FakeReadRepository()
+
+    result = search_context_tool(
+        repository=repository,
+        query="training data",
+        paper_id="paper-1",
+        limit=30,
+    )
+
+    assert result == {
+        "scope": "paper",
+        "paper_id": "paper-1",
+        "limit": 12,
+        "summary": {"summary_long": "fallback"},
+        "chunks": ["chunk 1", "chunk 2"],
+    }
+
+
+def test_search_context_tool_uses_library_scope_without_paper_id() -> None:
+    repository = FakeReadRepository()
+
+    result = search_context_tool(
+        repository=repository, query="training data", paper_id=None, limit=2
+    )
+
+    assert result == {
+        "scope": "library",
+        "paper_id": None,
+        "limit": 2,
+        "summary": {"summary_long": "fallback"},
+        "chunks": [
+            {
+                "paper_id": "p1",
+                "canonical_title": "Paper A",
+                "content": "[Paper A] chunk",
+            }
+        ],
+    }
