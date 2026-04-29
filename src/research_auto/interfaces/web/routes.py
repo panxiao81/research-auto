@@ -128,6 +128,7 @@ def ui_home(request: Request) -> HTMLResponse:
         parsed=None,
         summarized=True,
         provider=None,
+        starred=None,
         sort="updated",
         order="desc",
     )
@@ -231,6 +232,7 @@ def ui_papers(
     parsed: str | None = None,
     summarized: str | None = None,
     provider: str | None = None,
+    starred: str | None = None,
 ) -> HTMLResponse:
     db: Database = request.app.state.db
     result = list_papers_for_ui(
@@ -243,6 +245,7 @@ def ui_papers(
         parsed=_to_bool(parsed),
         summarized=_to_bool(summarized),
         provider=provider,
+        starred=_to_bool(starred),
         sort=sort,
         order=order,
     )
@@ -261,6 +264,7 @@ def ui_papers(
                 "parsed": parsed or "",
                 "summarized": summarized or "",
                 "provider": provider or "",
+                "starred": starred or "",
             },
             "providers": providers,
         },
@@ -271,6 +275,20 @@ def ui_papers(
 def ui_paper_detail(request: Request, paper_id: str) -> HTMLResponse:
     detail = _paper_detail_or_404(request, paper_id)
     return templates.TemplateResponse(request, "pages/paper_detail.html", detail)
+
+
+@router.post("/ui/papers/{paper_id}/star")
+def ui_toggle_paper_star(request: Request, paper_id: str) -> RedirectResponse:
+    detail = _paper_detail_or_404(request, paper_id)
+    paper = detail["paper"]
+    assert isinstance(paper, dict)
+    updated = request.app.state.read_repository.set_paper_starred(
+        paper_id=paper_id,
+        starred=not bool(paper.get("starred")),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404)
+    return RedirectResponse(url=f"/ui/papers/{paper_id}", status_code=303)
 
 
 @router.post("/ui/papers/{paper_id}/upload-pdf", response_class=HTMLResponse)
