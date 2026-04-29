@@ -87,6 +87,20 @@ def test_migrate_cli_dispatches_to_database_migration(monkeypatch) -> None:
     assert calls == ["load_dotenv", "parse_args", "migrate_db"]
 
 
+def test_migrate_db_prints_up_to_date_when_no_migrations_apply(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        app,
+        "get_settings",
+        lambda: SimpleNamespace(database_url="postgresql://example"),
+    )
+    monkeypatch.setattr(app, "migrate_db_action", lambda settings: 0)
+
+    app.migrate_db()
+
+    captured = capsys.readouterr()
+    assert captured.out == "database already up to date\n"
+
+
 def test_repair_running_jobs_cli_dispatches_to_admin_action(monkeypatch) -> None:
     calls: list[object] = []
 
@@ -108,6 +122,33 @@ def test_repair_running_jobs_cli_dispatches_to_admin_action(monkeypatch) -> None
     app.main()
 
     assert calls == ["load_dotenv", "parse_args", 600]
+
+
+def test_main_dispatches_inspect_ask_library(monkeypatch) -> None:
+    calls: list[object] = []
+
+    class DummyParser:
+        def parse_args(self):
+            calls.append("parse_args")
+            return SimpleNamespace(
+                group="inspect",
+                command="ask",
+                target="library",
+                question="What changed?",
+                limit=5,
+            )
+
+    monkeypatch.setattr(app, "build_parser", lambda: DummyParser())
+    monkeypatch.setattr(app, "load_dotenv", lambda: calls.append("load_dotenv"))
+    monkeypatch.setattr(
+        app,
+        "ask_library_cli",
+        lambda question, limit: calls.append((question, limit)),
+    )
+
+    app.main()
+
+    assert calls == ["load_dotenv", "parse_args", ("What changed?", 5)]
 
 
 def test_enqueue_parse_cli_delegates_to_admin_action(monkeypatch) -> None:

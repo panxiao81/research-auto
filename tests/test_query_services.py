@@ -91,6 +91,13 @@ class FakeAnswerer:
         )
 
 
+class RaisingAnswerer:
+    def answer_question(
+        self, *, question: str, paper_context: str, chunk_quotes: list[str]
+    ) -> QuestionAnswer:
+        raise RuntimeError("llm unavailable")
+
+
 def test_read_query_service_adds_bibtex() -> None:
     service = ReadQueryService(FakeReadRepository())
 
@@ -107,6 +114,19 @@ def test_question_answer_service_dedupes_library_papers() -> None:
 
     assert answer["answer"] == "ok"
     assert len(answer["papers"]) == 1
+
+
+def test_question_answer_service_falls_back_to_summary_when_answerer_fails() -> None:
+    service = QuestionAnswerService(FakeReadRepository(), RaisingAnswerer())
+
+    answer = service.ask_paper(paper_id="paper-1", question="future work?", limit=5)
+
+    assert answer == {
+        "answer": "fallback",
+        "answer_zh": "",
+        "evidence_quotes": ["chunk 1", "chunk 2"],
+        "confidence": "medium",
+    }
 
 
 def test_search_papers_tool_clamps_limit() -> None:

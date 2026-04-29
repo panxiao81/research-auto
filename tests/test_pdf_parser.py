@@ -135,6 +135,38 @@ def test_pdf_parser_adapter_falls_back_to_pypdf_for_expected_datalab_fallback() 
     assert parsed.page_count == 1
 
 
+def test_pdf_parser_adapter_rewinds_stream_before_pypdf_fallback() -> None:
+    class FakeStorage:
+        def read(self, *, storage_uri: str) -> BytesIO:
+            assert storage_uri == "local://paper-1/paper.pdf"
+            return BytesIO(b"%PDF-1.4\n%stub")
+
+    class FakeDatalabParser:
+        def parse(self, source: str | BytesIO):
+            assert source.read(5) == b"%PDF-"
+            raise DatalabParserFallback("markdown was empty")
+
+    def fake_pypdf_parser(source: str | BytesIO):
+        assert source.read() == b"%PDF-1.4\n%stub"
+        return SimpleNamespace(
+            parser_version="pypdf-v1",
+            source_text="source",
+            full_text="full",
+            abstract_text=None,
+            page_count=1,
+            content_hash="abc",
+            chunks=["chunk"],
+        )
+
+    parsed = PdfParserAdapter(
+        storage=FakeStorage(),
+        datalab_parser=FakeDatalabParser(),
+        pypdf_parser=fake_pypdf_parser,
+    ).parse(storage_uri="local://paper-1/paper.pdf")
+
+    assert parsed.full_text == "full"
+
+
 def test_datalab_parser_keeps_markdown_source_text_and_normalizes_full_text() -> None:
     captured: dict[str, object] = {}
     raw_markdown = "\n# Title\n\nLine   one\x00\n"
@@ -164,7 +196,8 @@ def test_datalab_parser_keeps_markdown_source_text_and_normalizes_full_text() ->
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://api.example.com"
     assert captured["timeout"] == 12.5
-    assert captured["file_path"] == Path(captured["file_path"])
+    assert captured["file_path"].suffix == ".pdf"
+    assert not captured["file_path"].exists()
     assert captured["file_bytes"] == b"%PDF-1.4\n%stub"
     assert parsed.page_count == 7
 

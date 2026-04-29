@@ -654,10 +654,13 @@ def extract_json_from_litellm_responses(response: Any) -> dict[str, Any]:
             for part in content:
                 if not isinstance(part, dict):
                     continue
+                candidate_text = part.get("output_text")
+                if not isinstance(candidate_text, str):
+                    candidate_text = part.get("text")
                 if part.get("type") == "output_text" and isinstance(
-                    part.get("text"), str
+                    candidate_text, str
                 ):
-                    candidate = part.get("text", "").strip()
+                    candidate = candidate_text.strip()
                     if candidate:
                         return json.loads(candidate)
     raise ValueError("No JSON output_text found in LiteLLM responses payload")
