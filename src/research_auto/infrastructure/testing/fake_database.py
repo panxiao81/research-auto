@@ -42,6 +42,7 @@ class FakeDatabase:
             "arxiv_id": None,
             "openreview_id": None,
             "source_confidence": 0.990,
+            "starred": False,
             "resolution_status": "resolved",
             "status": "discovered",
             "created_at": "2026-04-27 12:00:00+00:00",
@@ -149,6 +150,7 @@ class FakeDatabase:
                 "provider": self._summary["provider"],
                 "model_name": self._summary["model_name"],
                 "prompt_version": self._summary["prompt_version"],
+                "starred": self._paper["starred"],
                 "has_pdf": True,
                 "is_parsed": True,
                 "is_summarized": True,
@@ -192,6 +194,10 @@ class FakeDatabase:
         if "coalesce(ls.provider, '') = %s" in query:
             if str(params[index]) != self._summary["provider"]:
                 return False
+            index += 1
+        if "p.starred = %s" in query:
+            if bool(params[index]) != bool(self._paper["starred"]):
+                return False
         return True
 
     def query(self, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
@@ -226,6 +232,13 @@ class FakeDatabase:
         if normalized == "select distinct provider from paper_summaries where provider is not null order by provider asc":
             return [{"provider": self._summary["provider"]}]
 
+        if normalized == "update papers set starred = %s where id = %s returning id, starred":
+            starred, paper_id = params
+            if paper_id != self._paper["id"]:
+                return []
+            self._paper["starred"] = bool(starred)
+            return [{"id": self._paper["id"], "starred": self._paper["starred"]}]
+
         if normalized.startswith("select p.id, p.canonical_title, p.year, p.session_name, p.best_pdf_url, p.resolution_status, p.updated_at,"):
             if not self._matches_paper_filters(query.lower(), params):
                 return []
@@ -248,12 +261,17 @@ class FakeDatabase:
             return [dict(self._summary)]
 
         if normalized.startswith("select distinct on (p.id)"):
+            if len(params) == 7:
+                starred_filter = bool(params[5])
+                if starred_filter != bool(self._paper["starred"]):
+                    return []
             return [
                 {
                     "id": self._paper["id"],
                     "canonical_title": self._paper["canonical_title"],
                     "best_pdf_url": self._paper["best_pdf_url"],
                     "resolution_status": self._paper["resolution_status"],
+                    "starred": self._paper["starred"],
                     "summary_short": self._summary["summary_short"],
                     "summary_short_zh": self._summary["summary_short_zh"],
                     "research_question": self._summary["research_question"],

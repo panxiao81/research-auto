@@ -20,6 +20,7 @@ def list_papers_for_ui(
     parsed: bool | None,
     summarized: bool | None,
     provider: str | None,
+    starred: bool | None,
     sort: str,
     order: str,
 ) -> Page:
@@ -32,6 +33,7 @@ def list_papers_for_ui(
         parsed=parsed,
         summarized=summarized,
         provider=provider,
+        starred=starred,
         sort=sort,
         order=order,
     )
@@ -41,8 +43,10 @@ def get_paper_detail_for_ui(db: Database, paper_id: str) -> dict[str, object]:
     return _service(db).get_paper_detail(paper_id)
 
 
-def search_papers_for_ui(db: Database, q: str, limit: int) -> list[dict[str, object]]:
-    return _service(db).search_papers(q, limit)
+def search_papers_for_ui(
+    db: Database, q: str, limit: int, starred: bool | None = None
+) -> list[dict[str, object]]:
+    return _service(db).search_papers(q, limit, starred=starred)
 
 
 def get_ui_stats(db: Database) -> dict[str, object]:

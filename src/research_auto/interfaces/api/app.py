@@ -99,8 +99,8 @@ def create_app() -> FastAPI:
         return read_service.list_jobs(status=None, job_type=None, limit=limit)
 
     @app.get("/search")
-    def search_papers(q: str, limit: int = 20) -> list[dict[str, object]]:
-        return read_service.search_papers(q, limit)
+    def search_papers(q: str, limit: int = 20, starred: bool | None = None) -> list[dict[str, object]]:
+        return read_service.search_papers(q, limit, starred=starred)
 
     @app.post("/ask/paper/{paper_id}")
     def ask_paper(paper_id: str, payload: QuestionRequest) -> dict[str, object]:

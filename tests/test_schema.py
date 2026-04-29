@@ -24,6 +24,11 @@ def test_schema_includes_parse_source_text() -> None:
     assert "alter table paper_parses alter column source_text drop default;" in SCHEMA_SQL
 
 
+def test_schema_includes_paper_star_column() -> None:
+    assert "starred boolean not null default false" in SCHEMA_SQL
+    assert "alter table papers add column if not exists starred boolean not null default false;" in SCHEMA_SQL
+
+
 class _FakeCursor:
     def __init__(self) -> None:
         self.executed: list[tuple[str, object]] = []

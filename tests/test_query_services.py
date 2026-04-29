@@ -17,7 +17,7 @@ from research_auto.interfaces.mcp.tools import (
 
 class FakeReadRepository:
     def __init__(self) -> None:
-        self.search_calls: list[tuple[str, int]] = []
+        self.search_calls: list[tuple[str, int, bool | None]] = []
         self.paper_context_calls: list[tuple[str, str, int]] = []
         self.library_context_calls: list[tuple[str, int]] = []
 
@@ -40,8 +40,8 @@ class FakeReadRepository:
             "summary": None,
         }
 
-    def search_papers(self, *, q: str, limit: int):
-        self.search_calls.append((q, limit))
+    def search_papers(self, *, q: str, limit: int, starred: bool | None = None):
+        self.search_calls.append((q, limit, starred))
         return [{"canonical_title": q, "limit": limit}]
 
     def get_stats(self):

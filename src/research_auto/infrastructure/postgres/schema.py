@@ -58,6 +58,7 @@ create table if not exists papers (
     arxiv_id text,
     openreview_id text,
     source_confidence numeric(4,3),
+    starred boolean not null default false,
     resolution_status text not null default 'pending',
     status text not null default 'discovered',
     created_at timestamptz not null default now(),
@@ -66,6 +67,7 @@ create table if not exists papers (
 
 alter table papers add column if not exists best_pdf_url text;
 alter table papers add column if not exists best_landing_url text;
+alter table papers add column if not exists starred boolean not null default false;
 alter table papers add column if not exists resolution_status text not null default 'pending';
 
 create unique index if not exists papers_track_title_udx

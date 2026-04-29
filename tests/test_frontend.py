@@ -22,6 +22,7 @@ def _unresolved_paper_detail(
             "track_name": "Research Track",
             "year": 2026,
             "session_name": None,
+            "starred": False,
             "resolution_status": "unresolved",
             "best_pdf_url": None,
             "best_landing_url": None,
@@ -218,6 +219,18 @@ def test_ui_search_renders_results() -> None:
     assert response.status_code == 200
     assert "Search" in response.text
     assert "Breaking Single-Tester Limits" in response.text
+    assert 'name="starred"' in response.text
+
+
+def test_ui_search_can_filter_starred_results() -> None:
+    client = _client()
+    client.post("/ui/papers/a7ccafea-b80f-4a01-bc18-42347badee49/star")
+
+    response = client.get("/ui/search?q=single+tester+limits&starred=true")
+
+    assert response.status_code == 200
+    assert "Breaking Single-Tester Limits" in response.text
+    assert "Starred" in response.text
 
 
 def test_ui_paper_detail_renders_summary() -> None:
@@ -229,6 +242,27 @@ def test_ui_paper_detail_renders_summary() -> None:
     assert "@inproceedings{" in response.text
     assert "研究问题" in response.text
     assert "未来工作" in response.text
+    assert "Star paper" in response.text
+
+
+def test_ui_paper_star_toggle_updates_detail_and_filters_list() -> None:
+    client = _client()
+
+    response = client.post(
+        "/ui/papers/a7ccafea-b80f-4a01-bc18-42347badee49/star",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+
+    detail = client.get("/ui/papers/a7ccafea-b80f-4a01-bc18-42347badee49")
+    assert "Unstar paper" in detail.text
+    assert "Starred" in detail.text
+
+    papers = client.get("/ui/papers?starred=true")
+    assert papers.status_code == 200
+    assert "Breaking Single-Tester Limits" in papers.text
+    assert "Starred" in papers.text
 
 
 def test_ui_paper_detail_shows_manual_pdf_upload_for_unresolved_paper(

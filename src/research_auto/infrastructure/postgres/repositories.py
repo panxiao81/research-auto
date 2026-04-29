@@ -555,6 +555,7 @@ class PostgresReadRepository:
         parsed: bool | None,
         summarized: bool | None,
         provider: str | None,
+        starred: bool | None,
         sort: str,
         order: str,
     ) -> Page:
@@ -581,6 +582,9 @@ class PostgresReadRepository:
         if provider:
             filters.append("coalesce(ls.provider, '') = %s")
             params.append(provider)
+        if starred is not None:
+            filters.append("p.starred = %s")
+            params.append(starred)
         where_sql = f"where {' and '.join(filters)}" if filters else ""
         order_sql = build_paper_order_sql(sort, order)
         offset = max(page - 1, 0) * page_size
@@ -601,6 +605,7 @@ class PostgresReadRepository:
                    c.slug as conference_slug, t.name as track_name, lp.id as latest_parse_id, lp.page_count,
                    ls.id as latest_summary_id, ls.provider, ls.model_name, ls.prompt_version, ls.summary_short,
                    ls.summary_short_zh, ls.research_question_zh,
+                   p.starred,
                    (p.best_pdf_url is not null) as has_pdf,
                    (lp.id is not null) as is_parsed,
                    (ls.id is not null) as is_summarized,
@@ -613,6 +618,12 @@ class PostgresReadRepository:
             tuple([*params, page_size, offset]),
         )
         return Page(items=rows, total=total, page=page, page_size=page_size)
+
+    def set_paper_starred(self, *, paper_id: str, starred: bool) -> dict[str, Any] | None:
+        return self.jobs.fetch_one(
+            "update papers set starred = %s where id = %s returning id, starred",
+            (starred, paper_id),
+        )
 
     def get_paper_detail(self, *, paper_id: str) -> dict[str, Any]:
         paper = self.jobs.fetch_one(
@@ -652,12 +663,20 @@ class PostgresReadRepository:
             "summary": summary,
         }
 
-    def search_papers(self, *, q: str, limit: int) -> list[dict[str, Any]]:
+    def search_papers(
+        self, *, q: str, limit: int, starred: bool | None = None
+    ) -> list[dict[str, Any]]:
         like_q = f"%{q}%"
+        starred_filter = "and p.starred = %s" if starred is not None else ""
+        params: tuple[Any, ...]
+        if starred is not None:
+            params = (q, q, like_q, like_q, like_q, starred, limit)
+        else:
+            params = (q, q, like_q, like_q, like_q, limit)
         return self.jobs.fetch_all(
-            """
+            f"""
             select distinct on (p.id)
-                p.id, p.canonical_title, p.best_pdf_url, p.resolution_status,
+                p.id, p.canonical_title, p.best_pdf_url, p.resolution_status, p.starred,
                 ls.summary_short, ls.summary_short_zh, ls.research_question, ls.research_question_zh,
                 ts_rank_cd(
                     setweight(to_tsvector('english', coalesce(p.canonical_title, '')), 'A') ||
@@ -680,10 +699,12 @@ class PostgresReadRepository:
             or p.canonical_title ilike %s
             or coalesce(ls.summary_short, '') ilike %s
             or coalesce(ls.summary_short_zh, '') ilike %s
+            )
+            {starred_filter}
             order by p.id, rank desc nulls last, ls.created_at desc nulls last
             limit %s
             """,
-            (q, q, like_q, like_q, like_q, limit),
+            params,
         )
 
     def list_summary_providers(self) -> list[dict[str, Any]]:

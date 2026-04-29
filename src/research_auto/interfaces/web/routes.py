@@ -329,11 +329,16 @@ def ui_stream_artifact(request: Request, paper_id: str, artifact_id: str) -> Str
 
 
 @router.get("/ui/search", response_class=HTMLResponse)
-def ui_search(request: Request, q: str = Query(""), limit: int = 20) -> HTMLResponse:
+def ui_search(
+    request: Request, q: str = Query(""), limit: int = 20, starred: str | None = None
+) -> HTMLResponse:
     db: Database = request.app.state.db
-    results = search_papers_for_ui(db, q, limit) if q else []
+    starred_value = _to_bool(starred)
+    results = search_papers_for_ui(db, q, limit, starred=starred_value) if q else []
     return templates.TemplateResponse(
-        request, "pages/search.html", {"q": q, "results": results, "limit": limit}
+        request,
+        "pages/search.html",
+        {"q": q, "results": results, "limit": limit, "starred": starred or ""},
     )
 
 

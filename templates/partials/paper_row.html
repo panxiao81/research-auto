@@ -1,6 +1,7 @@
 <tr>
   <td>
     <a class="fw-semibold" href="/ui/papers/{{ row.id }}">{{ row.canonical_title }}</a>
+    {% if row.starred %}<span class="badge text-bg-warning ms-2">Starred</span>{% endif %}
     {% if row.summary_short_zh %}<div class="small text-body-secondary mt-1">{{ row.summary_short_zh }}</div>
     {% elif row.summary_short %}<div class="small text-body-secondary mt-1">{{ row.summary_short }}</div>{% endif %}
   </td>
@@ -8,6 +9,7 @@
   <td>{{ row.track_name or '-' }}</td>
   <td>{{ row.session_name or '-' }}</td>
   <td>{% set paper = row %}{% include "partials/status_badge.html" %}</td>
+  <td>{% if row.starred %}<span class="badge text-bg-warning">Yes</span>{% else %}<span class="badge text-bg-light">No</span>{% endif %}</td>
   <td>{% if row.has_pdf %}<span class="badge text-bg-success">PDF</span>{% else %}<span class="badge text-bg-light">No</span>{% endif %}</td>
   <td>{% if row.is_parsed %}<span class="badge text-bg-success">Parsed</span>{% else %}<span class="badge text-bg-light">No</span>{% endif %}</td>
   <td>

@@ -34,11 +34,14 @@ class ReadRepository(Protocol):
         parsed: bool | None,
         summarized: bool | None,
         provider: str | None,
+        starred: bool | None,
         sort: str,
         order: str,
     ) -> Page: ...
     def get_paper_detail(self, *, paper_id: str) -> dict[str, Any]: ...
-    def search_papers(self, *, q: str, limit: int) -> list[dict[str, Any]]: ...
+    def search_papers(
+        self, *, q: str, limit: int, starred: bool | None
+    ) -> list[dict[str, Any]]: ...
     def get_stats(self) -> dict[str, Any]: ...
     def list_jobs(
         self, *, status: str | None, job_type: str | None, limit: int
@@ -78,8 +81,10 @@ class ReadQueryService:
         )
         return detail
 
-    def search_papers(self, query: str, limit: int) -> list[dict[str, Any]]:
-        return self.repository.search_papers(q=query, limit=limit)
+    def search_papers(
+        self, query: str, limit: int, starred: bool | None = None
+    ) -> list[dict[str, Any]]:
+        return self.repository.search_papers(q=query, limit=limit, starred=starred)
 
     def get_stats(self) -> dict[str, Any]:
         return self.repository.get_stats()

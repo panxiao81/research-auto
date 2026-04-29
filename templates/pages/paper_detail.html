@@ -3,7 +3,10 @@
 {% block content %}
 <section class="mb-4">
   <h1 class="h2 mb-2">{{ paper.canonical_title }}</h1>
-  <p class="text-body-secondary mb-0">{{ paper.conference_name }}{% if paper.track_name %} / {{ paper.track_name }}{% endif %}</p>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <p class="text-body-secondary mb-0">{{ paper.conference_name }}{% if paper.track_name %} / {{ paper.track_name }}{% endif %}</p>
+    {% if paper.starred %}<span class="badge text-bg-warning">Starred</span>{% endif %}
+  </div>
 </section>
 
 <div class="row g-4">
@@ -15,10 +18,14 @@
       <dt>Year</dt><dd>{{ paper.year }}</dd>
       <dt>Session</dt><dd>{{ paper.session_name or '-' }}</dd>
       <dt>Resolved</dt><dd>{% include "partials/status_badge.html" with context %}</dd>
+      <dt>Starred</dt><dd>{{ 'Yes' if paper.starred else 'No' }}</dd>
       <dt>PDF</dt><dd>{% if paper.best_pdf_url %}<a href="{{ paper.best_pdf_url }}">Open PDF</a>{% else %}-{% endif %}</dd>
       <dt>Landing</dt><dd>{% if paper.best_landing_url %}<a href="{{ paper.best_landing_url }}">Open</a>{% else %}-{% endif %}</dd>
       <dt>Detail</dt><dd>{% if paper.detail_url %}<a href="{{ paper.detail_url }}">Conference page</a>{% else %}-{% endif %}</dd>
     </dl>
+    <form method="post" action="/ui/papers/{{ paper.id }}/star" class="mt-3">
+      <button class="btn btn-outline-warning btn-sm" type="submit">{% if paper.starred %}Unstar paper{% else %}Star paper{% endif %}</button>
+    </form>
     {% if upload_error and not show_upload_retry %}
     <div class="alert alert-danger small mt-4 mb-0" role="alert">{{ upload_error }}</div>
     {% endif %}
